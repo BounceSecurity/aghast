@@ -1,2 +1,2 @@
 # Getting Started
-npm install -g @bouncesecurity/aghast@0.0.8
+npm install -g @bouncesecurity/aghast@0.0.9
