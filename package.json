@@ -1,0 +1,22 @@
+{
+  "name": "@bouncesecurity/aghast",
+  "version": "0.0.7",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git@github.com:BounceSecurity/aghast.git"
+  },
+  "bin": {
+    "aghast": "dist/cli.js"
+  },
+  "files": [
+    "dist/"
+  ],
+  "scripts": {
+    "build": "tsc"
+  },
+  "license": "AGPL-3.0-or-later",
+  "devDependencies": {
+    "typescript": "^5.0.0"
+  }
+}
