@@ -39,7 +39,7 @@
     "eslint": "^10.0.3",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3",
-    "typescript-eslint": "^8.57.0"
+    "typescript-eslint": "^8.57.1"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.76",
