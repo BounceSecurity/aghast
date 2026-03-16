@@ -155,7 +155,9 @@ export function normalizeUrl(url: string): string {
   }
 
   // Remove trailing slashes
-  normalized = normalized.replace(/\/+$/, '');
+  while (normalized.endsWith('/')) {
+    normalized = normalized.slice(0, -1);
+  }
 
   return normalized;
 }
