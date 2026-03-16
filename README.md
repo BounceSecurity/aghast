@@ -108,4 +108,4 @@ We welcome bug reports and feature requests via [GitHub Issues](https://github.c
 
 This project is licensed under the [GNU Affero General Public License v3.0 or later](LICENSE).
 
-Copyright (C) 2026 Bounce Consulting Ltd.
+Copyright (C) 2026 [Bounce Consulting Ltd.](https://bouncesecurity.com/)
