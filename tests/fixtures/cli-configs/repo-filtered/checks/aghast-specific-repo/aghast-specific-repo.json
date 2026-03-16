@@ -1,0 +1,5 @@
+{
+  "id": "aghast-specific-repo",
+  "name": "Specific Repo Check",
+  "instructionsFile": "aghast-specific-repo.md"
+}

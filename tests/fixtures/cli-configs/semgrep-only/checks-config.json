@@ -1,0 +1,9 @@
+{
+  "checks": [
+    {
+      "id": "aghast-semgrep-only",
+      "repositories": [],
+      "enabled": true
+    }
+  ]
+}

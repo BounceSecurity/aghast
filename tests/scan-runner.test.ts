@@ -1,0 +1,1535 @@
+import { describe, it, afterEach } from 'node:test';
+import assert from 'node:assert/strict';
+import { createRequire } from 'node:module';
+import { resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import {
+  runMultiScan,
+  generateScanId,
+} from '../src/scan-runner.js';
+import type { SecurityCheck, CheckDetails } from '../src/types.js';
+import type { AIProvider, AIResponse, CheckResponse } from '../src/types.js';
+import { FatalProviderError } from '../src/types.js';
+import {
+  createPassProvider,
+  createPassProviderWithTokens,
+  createMalformedProvider,
+  createTimeoutProvider,
+  MockAIProvider,
+} from './mocks/mock-ai-provider.js';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const require = createRequire(import.meta.url);
+const pkgVersion = (require('../package.json') as { version: string }).version;
+const fixtureRepo = resolve(__dirname, 'fixtures', 'git-repo');
+const multiTargetSarif = resolve(__dirname, 'fixtures', 'sarif', 'multi-target-3.sarif');
+const multiTarget10Sarif = resolve(__dirname, 'fixtures', 'sarif', 'multi-target-10.sarif');
+const emptySarif = resolve(__dirname, 'fixtures', 'sarif', 'empty-results.sarif');
+
+describe('generateScanId', () => {
+  it('follows scan-<timestamp>-<hash> format', () => {
+    const id = generateScanId();
+    assert.match(id, /^scan-\d{14}-[a-f0-9]{6}$/);
+  });
+
+  it('generates unique IDs', () => {
+    const ids = new Set(Array.from({ length: 10 }, () => generateScanId()));
+    assert.equal(ids.size, 10);
+  });
+});
+
+// --- Helper to build check + details for runMultiScan ---
+
+const sqlCheckContent = `### SQL Injection Prevention
+
+#### Overview
+Validates that database queries use parameterized queries or prepared statements instead of string concatenation.
+
+#### What to Check
+1. Identify all database query execution points
+2. Check if user-supplied input is concatenated into SQL strings
+3. Verify parameterized queries or ORM methods are used
+
+#### Result
+- **PASS**: All database queries use parameterized queries or ORM methods
+- **FAIL**: Any database query uses string concatenation with user input
+
+#### Recommendation
+Replace string concatenation with parameterized queries. Use prepared statements or ORM query builders.
+`;
+
+function makeCheckAndDetails(
+  id: string,
+  name: string,
+  content: string = '### ' + name + '\n\n#### Overview\nTest overview.\n',
+): { check: SecurityCheck; details: CheckDetails } {
+  return {
+    check: {
+      id,
+      name,
+      repositories: [],
+      instructionsFile: 'unused-in-multi-scan.md',
+    },
+    details: {
+      id,
+      name,
+      overview: 'Test overview.',
+      content,
+    },
+  };
+}
+
+function makeSqlCheck(): { check: SecurityCheck; details: CheckDetails } {
+  return makeCheckAndDetails('sql-check', 'SQL Injection Prevention', sqlCheckContent);
+}
+
+// --- runMultiScan tests (single check scenarios, formerly runScan) ---
+
+describe('runMultiScan (single check)', () => {
+  it('produces PASS result with empty issues', async () => {
+    const provider = createPassProvider();
+    const results = await runMultiScan({
+      repositoryPath: fixtureRepo,
+      checks: [makeSqlCheck()],
+      aiProvider: provider,
+    });
+
+    assert.equal(results.version, pkgVersion);
+    assert.match(results.scanId, /^scan-\d{14}-[a-f0-9]{6}$/);
+    assert.equal(results.repository.path, fixtureRepo);
+    assert.equal(results.issues.length, 0);
+    assert.equal(results.checks.length, 1);
+    assert.equal(results.checks[0].status, 'PASS');
+    assert.equal(results.checks[0].issuesFound, 0);
+    assert.equal(results.summary.totalChecks, 1);
+    assert.equal(results.summary.passedChecks, 1);
+    assert.equal(results.summary.failedChecks, 0);
+    assert.equal(results.summary.flaggedChecks, 0);
+    assert.equal(results.summary.errorChecks, 0);
+    assert.equal(results.summary.totalIssues, 0);
+    assert.ok(results.startTime);
+    assert.ok(results.endTime);
+    assert.ok(results.executionTime >= 0);
+    assert.equal(results.aiProvider.name, 'claude-code');
+  });
+
+  it('produces FAIL result with enriched issues', async () => {
+    const provider = new MockAIProvider({
+      response: {
+        issues: [
+          {
+            file: 'src/example.ts',
+            startLine: 4,
+            endLine: 4,
+            description: 'SQL injection vulnerability found.',
+          },
+        ],
+      },
+    });
+
+    const results = await runMultiScan({
+      repositoryPath: fixtureRepo,
+      checks: [makeSqlCheck()],
+      aiProvider: provider,
+    });
+
+    assert.equal(results.checks[0].status, 'FAIL');
+    assert.equal(results.checks[0].issuesFound, 1);
+    assert.equal(results.issues.length, 1);
+
+    const issue = results.issues[0];
+    assert.equal(issue.file, 'src/example.ts');
+    assert.equal(issue.startLine, 4);
+    assert.equal(issue.endLine, 4);
+    assert.equal(issue.description, 'SQL injection vulnerability found.');
+    assert.ok(issue.checkId);
+    assert.ok(issue.checkName);
+    // codeSnippet should be extracted from the fixture file
+    assert.ok(issue.codeSnippet);
+    assert.ok(issue.codeSnippet!.includes('SELECT'));
+
+    assert.equal(results.summary.failedChecks, 1);
+    assert.equal(results.summary.totalIssues, 1);
+  });
+
+  it('produces ERROR result for malformed AI response', async () => {
+    const provider = createMalformedProvider();
+    const results = await runMultiScan({
+      repositoryPath: fixtureRepo,
+      checks: [makeSqlCheck()],
+      aiProvider: provider,
+    });
+
+    assert.equal(results.checks[0].status, 'ERROR');
+    assert.equal(results.checks[0].issuesFound, 0);
+    assert.ok(results.checks[0].error);
+    assert.ok(results.checks[0].rawAiResponse);
+    assert.equal(results.issues.length, 0);
+    assert.equal(results.summary.errorChecks, 1);
+  });
+
+  it('produces ERROR result when AI provider throws', async () => {
+    const provider = createTimeoutProvider();
+    const results = await runMultiScan({
+      repositoryPath: fixtureRepo,
+      checks: [makeSqlCheck()],
+      aiProvider: provider,
+    });
+
+    assert.equal(results.checks[0].status, 'ERROR');
+    assert.ok(results.checks[0].error);
+    assert.ok(results.checks[0].error!.includes('timed out'));
+    assert.equal(results.issues.length, 0);
+    assert.equal(results.summary.errorChecks, 1);
+  });
+
+  it('tracks execution time', async () => {
+    const provider = createPassProvider();
+    const results = await runMultiScan({
+      repositoryPath: fixtureRepo,
+      checks: [makeSqlCheck()],
+      aiProvider: provider,
+    });
+
+    assert.ok(results.checks[0].executionTime >= 0);
+    assert.ok(results.executionTime >= 0);
+  });
+
+  it('sends prompt with check instructions to AI provider', async () => {
+    const provider = createPassProvider();
+    await runMultiScan({
+      repositoryPath: fixtureRepo,
+      checks: [makeSqlCheck()],
+      aiProvider: provider,
+    });
+
+    assert.equal(provider.callHistory.length, 1);
+    const call = provider.callHistory[0];
+    // Prompt should contain the generic template
+    assert.ok(call.instructions.includes('GENERIC INSTRUCTIONS'));
+    assert.ok(call.instructions.includes('CHECK INSTRUCTIONS'));
+    // And the check-specific content
+    assert.ok(call.instructions.includes('SQL Injection Prevention'));
+    assert.equal(call.repositoryPath, fixtureRepo);
+  });
+
+  it('handles issues for non-existent files gracefully (no codeSnippet)', async () => {
+    const provider = new MockAIProvider({
+      response: {
+        issues: [
+          {
+            file: 'nonexistent/file.ts',
+            startLine: 1,
+            endLine: 5,
+            description: 'Issue in missing file.',
+          },
+        ],
+      },
+    });
+
+    const results = await runMultiScan({
+      repositoryPath: fixtureRepo,
+      checks: [makeSqlCheck()],
+      aiProvider: provider,
+    });
+
+    assert.equal(results.checks[0].status, 'FAIL');
+    assert.equal(results.issues.length, 1);
+    assert.equal(results.issues[0].codeSnippet, undefined);
+  });
+
+  it('ScanResults has valid timestamp format', async () => {
+    const provider = createPassProvider();
+    const results = await runMultiScan({
+      repositoryPath: fixtureRepo,
+      checks: [makeSqlCheck()],
+      aiProvider: provider,
+    });
+
+    // ISO 8601 format
+    assert.ok(!isNaN(Date.parse(results.timestamp)));
+    assert.ok(!isNaN(Date.parse(results.startTime)));
+    assert.ok(!isNaN(Date.parse(results.endTime)));
+  });
+
+  it('propagates severity and confidence from check config to issues', async () => {
+    const provider = new MockAIProvider({
+      response: {
+        issues: [
+          {
+            file: 'src/example.ts',
+            startLine: 4,
+            endLine: 4,
+            description: 'SQL injection vulnerability found.',
+          },
+        ],
+      },
+    });
+
+    const checkWithMetadata = makeSqlCheck();
+    checkWithMetadata.check.severity = 'high';
+    checkWithMetadata.check.confidence = 'medium';
+
+    const results = await runMultiScan({
+      repositoryPath: fixtureRepo,
+      checks: [checkWithMetadata],
+      aiProvider: provider,
+    });
+
+    const issue = results.issues[0];
+    assert.equal(issue.severity, 'high');
+    assert.equal(issue.confidence, 'medium');
+  });
+
+  it('issues have no severity/confidence when check config omits them', async () => {
+    const provider = new MockAIProvider({
+      response: {
+        issues: [
+          {
+            file: 'src/example.ts',
+            startLine: 4,
+            endLine: 4,
+            description: 'Issue without metadata.',
+          },
+        ],
+      },
+    });
+
+    const results = await runMultiScan({
+      repositoryPath: fixtureRepo,
+      checks: [makeSqlCheck()],
+      aiProvider: provider,
+    });
+
+    const issue = results.issues[0];
+    assert.equal(issue.severity, undefined);
+    assert.equal(issue.confidence, undefined);
+  });
+
+  it('ScanResults does not have top-level branch or commit fields', async () => {
+    const provider = createPassProvider();
+    const results = await runMultiScan({
+      repositoryPath: fixtureRepo,
+      checks: [makeSqlCheck()],
+      aiProvider: provider,
+    });
+
+    // branch and commit should only be inside repository, not at top level
+    const raw = JSON.parse(JSON.stringify(results));
+    assert.equal(raw.branch, undefined, 'Should not have top-level branch');
+    assert.equal(raw.commit, undefined, 'Should not have top-level commit');
+  });
+});
+
+// --- runMultiScan tests (multiple checks) ---
+
+describe('runMultiScan (multiple checks)', () => {
+  it('aggregates results from multiple passing checks', async () => {
+    const provider = createPassProvider();
+    const results = await runMultiScan({
+      repositoryPath: fixtureRepo,
+      checks: [
+        makeCheckAndDetails('check-1', 'Check One'),
+        makeCheckAndDetails('check-2', 'Check Two'),
+      ],
+      aiProvider: provider,
+    });
+
+    assert.equal(results.checks.length, 2);
+    assert.equal(results.checks[0].status, 'PASS');
+    assert.equal(results.checks[1].status, 'PASS');
+    assert.equal(results.summary.totalChecks, 2);
+    assert.equal(results.summary.passedChecks, 2);
+    assert.equal(results.summary.failedChecks, 0);
+    assert.equal(results.summary.flaggedChecks, 0);
+    assert.equal(results.summary.totalIssues, 0);
+    assert.equal(results.issues.length, 0);
+  });
+
+  it('aggregates results from mix of PASS and FAIL checks', async () => {
+    const provider = new MockAIProvider();
+    provider.setResponseQueue([
+      { issues: [] }, // PASS for first check
+      {
+        issues: [
+          { file: 'src/example.ts', startLine: 4, endLine: 4, description: 'Issue found.' },
+        ],
+      }, // FAIL for second check
+    ]);
+
+    const results = await runMultiScan({
+      repositoryPath: fixtureRepo,
+      checks: [
+        makeCheckAndDetails('check-pass', 'Pass Check'),
+        makeCheckAndDetails('check-fail', 'Fail Check'),
+      ],
+      aiProvider: provider,
+    });
+
+    assert.equal(results.summary.totalChecks, 2);
+    assert.equal(results.summary.passedChecks, 1);
+    assert.equal(results.summary.failedChecks, 1);
+    assert.equal(results.summary.totalIssues, 1);
+  });
+
+  it('issues from all checks appear in flat list with correct checkId/checkName', async () => {
+    const provider = new MockAIProvider();
+    provider.setResponseQueue([
+      {
+        issues: [
+          { file: 'src/a.ts', startLine: 1, endLine: 1, description: 'Issue A.' },
+        ],
+      },
+      {
+        issues: [
+          { file: 'src/b.ts', startLine: 2, endLine: 2, description: 'Issue B.' },
+        ],
+      },
+    ]);
+
+    const results = await runMultiScan({
+      repositoryPath: fixtureRepo,
+      checks: [
+        makeCheckAndDetails('check-a', 'Check A'),
+        makeCheckAndDetails('check-b', 'Check B'),
+      ],
+      aiProvider: provider,
+    });
+
+    assert.equal(results.issues.length, 2);
+    assert.equal(results.issues[0].checkId, 'check-a');
+    assert.equal(results.issues[0].checkName, 'Check A');
+    assert.equal(results.issues[1].checkId, 'check-b');
+    assert.equal(results.issues[1].checkName, 'Check B');
+  });
+
+  it('handles ERROR in one check while other checks succeed', async () => {
+    const provider = new MockAIProvider();
+    provider.setResponseQueue([
+      { issues: [] }, // PASS
+    ]);
+    // After queue is exhausted, second call will use the default rawResponse
+    provider.setRawResponse('not valid json');
+
+    const results = await runMultiScan({
+      repositoryPath: fixtureRepo,
+      checks: [
+        makeCheckAndDetails('check-ok', 'OK Check'),
+        makeCheckAndDetails('check-err', 'Error Check'),
+      ],
+      aiProvider: provider,
+    });
+
+    assert.equal(results.summary.totalChecks, 2);
+    assert.equal(results.summary.passedChecks, 1);
+    assert.equal(results.summary.errorChecks, 1);
+    assert.equal(results.checks[0].status, 'PASS');
+    assert.equal(results.checks[1].status, 'ERROR');
+  });
+
+  it('produces empty results when checks array is empty', async () => {
+    const provider = createPassProvider();
+    const results = await runMultiScan({
+      repositoryPath: fixtureRepo,
+      checks: [],
+      aiProvider: provider,
+    });
+
+    assert.equal(results.checks.length, 0);
+    assert.equal(results.issues.length, 0);
+    assert.equal(results.summary.totalChecks, 0);
+    assert.equal(results.summary.passedChecks, 0);
+    assert.equal(results.summary.failedChecks, 0);
+    assert.equal(results.summary.flaggedChecks, 0);
+    assert.equal(results.summary.errorChecks, 0);
+    assert.equal(results.summary.totalIssues, 0);
+  });
+
+  it('executes checks sequentially (order preserved)', async () => {
+    const provider = new MockAIProvider();
+    provider.setResponseQueue([
+      { issues: [] },
+      { issues: [] },
+      { issues: [] },
+    ]);
+
+    const results = await runMultiScan({
+      repositoryPath: fixtureRepo,
+      checks: [
+        makeCheckAndDetails('first', 'First'),
+        makeCheckAndDetails('second', 'Second'),
+        makeCheckAndDetails('third', 'Third'),
+      ],
+      aiProvider: provider,
+    });
+
+    assert.equal(results.checks[0].checkId, 'first');
+    assert.equal(results.checks[1].checkId, 'second');
+    assert.equal(results.checks[2].checkId, 'third');
+    assert.equal(provider.callHistory.length, 3);
+  });
+});
+
+// --- runMultiScan tests (multi-target checks) ---
+
+function makeMultiTargetCheck(
+  overrides?: Partial<SecurityCheck>,
+): { check: SecurityCheck; details: CheckDetails } {
+  return {
+    check: {
+      id: 'mt-check',
+      name: 'Multi-Target Check',
+      repositories: [],
+      instructionsFile: 'unused.md',
+      checkTarget: {
+        type: 'semgrep',
+        rules: 'unused-in-mock.yaml',
+      },
+      ...overrides,
+    },
+    details: {
+      id: 'mt-check',
+      name: 'Multi-Target Check',
+      overview: 'Test multi-target.',
+      content: '### Multi-Target Check\n\n#### Overview\nTest multi-target.\n',
+    },
+  };
+}
+
+describe('runMultiScan (multi-target checks)', () => {
+  const origMockSemgrep = process.env.AGHAST_MOCK_SEMGREP;
+
+  afterEach(() => {
+    if (origMockSemgrep === undefined) {
+      delete process.env.AGHAST_MOCK_SEMGREP;
+    } else {
+      process.env.AGHAST_MOCK_SEMGREP = origMockSemgrep;
+    }
+  });
+
+  it('3 targets all pass → PASS with targetsAnalyzed: 3', async () => {
+    process.env.AGHAST_MOCK_SEMGREP = multiTargetSarif;
+    const provider = createPassProvider();
+
+    const results = await runMultiScan({
+      repositoryPath: fixtureRepo,
+      checks: [makeMultiTargetCheck()],
+      aiProvider: provider,
+    });
+
+    assert.equal(results.checks[0].status, 'PASS');
+    assert.equal(results.checks[0].targetsAnalyzed, 3);
+    assert.equal(results.issues.length, 0);
+    assert.equal(provider.callHistory.length, 3);
+  });
+
+  it('3 targets, 1 has issues → FAIL with enriched issues', async () => {
+    process.env.AGHAST_MOCK_SEMGREP = multiTargetSarif;
+    const provider = new MockAIProvider();
+    provider.setResponseQueue([
+      { issues: [] }, // target 1: pass
+      {
+        issues: [{
+          file: 'src/example.ts',
+          startLine: 4,
+          endLine: 4,
+          description: 'SQL injection found.',
+        }],
+      }, // target 2: issue
+      { issues: [] }, // target 3: pass
+    ]);
+
+    const results = await runMultiScan({
+      repositoryPath: fixtureRepo,
+      checks: [makeMultiTargetCheck()],
+      aiProvider: provider,
+    });
+
+    assert.equal(results.checks[0].status, 'FAIL');
+    assert.equal(results.checks[0].targetsAnalyzed, 3);
+    assert.equal(results.checks[0].issuesFound, 1);
+    assert.equal(results.issues.length, 1);
+
+    const issue = results.issues[0];
+    assert.equal(issue.checkId, 'mt-check');
+    assert.equal(issue.checkName, 'Multi-Target Check');
+    assert.equal(issue.file, 'src/example.ts');
+    assert.ok(issue.codeSnippet);
+    assert.ok(issue.codeSnippet!.includes('SELECT'));
+  });
+
+  it('3 targets, 1 AI error → ERROR', async () => {
+    process.env.AGHAST_MOCK_SEMGREP = multiTargetSarif;
+    const provider = new MockAIProvider();
+    provider.setResponseQueue([
+      { issues: [] }, // target 1: pass
+      { issues: [] }, // target 2: pass
+    ]);
+    // Third call throws (queue exhausted + error set)
+    provider.setError(new Error('AI timeout'));
+
+    const results = await runMultiScan({
+      repositoryPath: fixtureRepo,
+      checks: [makeMultiTargetCheck()],
+      aiProvider: provider,
+    });
+
+    assert.equal(results.checks[0].status, 'ERROR');
+    assert.equal(results.checks[0].targetsAnalyzed, 3);
+  });
+
+  it('some targets error AND others find issues → FAIL (not ERROR)', async () => {
+    process.env.AGHAST_MOCK_SEMGREP = multiTargetSarif;
+
+    // Custom provider: call 0 finds an issue, call 1 passes, call 2 throws
+    let callCount = 0;
+    const mixedProvider = {
+      async initialize() {},
+      async validateConfig() { return true; },
+      async executeCheck(_instructions: string, _repositoryPath: string) {
+        const n = callCount++;
+        if (n === 0) {
+          const response = {
+            issues: [{
+              file: 'src/example.ts',
+              startLine: 4,
+              endLine: 4,
+              description: 'SQL injection found.',
+            }],
+          };
+          return { raw: JSON.stringify(response), parsed: response };
+        }
+        if (n === 1) {
+          const response = { issues: [] };
+          return { raw: JSON.stringify(response), parsed: response };
+        }
+        throw new Error('AI timeout');
+      },
+    };
+
+    const results = await runMultiScan({
+      repositoryPath: fixtureRepo,
+      checks: [makeMultiTargetCheck()],
+      aiProvider: mixedProvider,
+    });
+
+    assert.equal(results.checks[0].status, 'FAIL');
+    assert.equal(results.checks[0].issuesFound, 1);
+    assert.equal(results.issues.length, 1);
+    assert.equal(results.checks[0].targetsAnalyzed, 3);
+  });
+
+  it('0 targets → PASS with targetsAnalyzed: 0', async () => {
+    process.env.AGHAST_MOCK_SEMGREP = emptySarif;
+    const provider = createPassProvider();
+
+    const results = await runMultiScan({
+      repositoryPath: fixtureRepo,
+      checks: [makeMultiTargetCheck()],
+      aiProvider: provider,
+    });
+
+    assert.equal(results.checks[0].status, 'PASS');
+    assert.equal(results.checks[0].targetsAnalyzed, 0);
+    assert.equal(results.issues.length, 0);
+    assert.equal(provider.callHistory.length, 0); // no AI calls needed
+  });
+
+  it('maxTargets limiting applied via checkTarget.maxTargets', async () => {
+    process.env.AGHAST_MOCK_SEMGREP = multiTargetSarif;
+    const provider = createPassProvider();
+
+    const results = await runMultiScan({
+      repositoryPath: fixtureRepo,
+      checks: [makeMultiTargetCheck({
+        checkTarget: { type: 'semgrep', rules: 'unused.yaml', maxTargets: 1 },
+      })],
+      aiProvider: provider,
+    });
+
+    assert.equal(results.checks[0].targetsAnalyzed, 1);
+    assert.equal(provider.callHistory.length, 1);
+  });
+
+  it('checkTarget.maxTargets=2 limits to 2 targets', async () => {
+    process.env.AGHAST_MOCK_SEMGREP = multiTargetSarif;
+    const provider = createPassProvider();
+
+    const results = await runMultiScan({
+      repositoryPath: fixtureRepo,
+      checks: [makeMultiTargetCheck({
+        checkTarget: { type: 'semgrep', rules: 'unused.yaml', maxTargets: 2 },
+      })],
+      aiProvider: provider,
+    });
+
+    assert.equal(results.checks[0].targetsAnalyzed, 2);
+    assert.equal(provider.callHistory.length, 2);
+  });
+
+  it('target location embedded in prompt sent to AI provider', async () => {
+    process.env.AGHAST_MOCK_SEMGREP = multiTargetSarif;
+    const provider = createPassProvider();
+
+    await runMultiScan({
+      repositoryPath: fixtureRepo,
+      checks: [makeMultiTargetCheck()],
+      aiProvider: provider,
+    });
+
+    assert.equal(provider.callHistory.length, 3);
+
+    // First target: src/example.ts:3-5
+    assert.ok(provider.callHistory[0].instructions.includes('TARGET LOCATION:'));
+    assert.ok(provider.callHistory[0].instructions.includes('- File: src/example.ts'));
+    assert.ok(provider.callHistory[0].instructions.includes('- Lines: 3-5'));
+
+    // Second target: src/example.ts:8-11
+    assert.ok(provider.callHistory[1].instructions.includes('- File: src/example.ts'));
+    assert.ok(provider.callHistory[1].instructions.includes('- Lines: 8-11'));
+
+    // Third target: src/example.ts:1-2
+    assert.ok(provider.callHistory[2].instructions.includes('- File: src/example.ts'));
+    assert.ok(provider.callHistory[2].instructions.includes('- Lines: 1-2'));
+  });
+
+  it('issues include codeSnippet from fixture file', async () => {
+    process.env.AGHAST_MOCK_SEMGREP = multiTargetSarif;
+    const provider = new MockAIProvider({
+      response: {
+        issues: [{
+          file: 'src/example.ts',
+          startLine: 4,
+          endLine: 4,
+          description: 'SQL injection.',
+        }],
+      },
+    });
+
+    const results = await runMultiScan({
+      repositoryPath: fixtureRepo,
+      checks: [makeMultiTargetCheck()],
+      aiProvider: provider,
+    });
+
+    // All 3 targets return the same issue
+    assert.equal(results.issues.length, 3);
+    for (const issue of results.issues) {
+      assert.ok(issue.codeSnippet);
+      assert.ok(issue.codeSnippet!.includes('SELECT'));
+    }
+  });
+
+  it('severity and confidence propagated in multi-target mode', async () => {
+    process.env.AGHAST_MOCK_SEMGREP = multiTargetSarif;
+    const provider = new MockAIProvider({
+      response: {
+        issues: [{
+          file: 'src/example.ts',
+          startLine: 4,
+          endLine: 4,
+          description: 'Issue.',
+        }],
+      },
+    });
+
+    const check = makeMultiTargetCheck({ severity: 'high', confidence: 'medium' });
+    const results = await runMultiScan({
+      repositoryPath: fixtureRepo,
+      checks: [check],
+      aiProvider: provider,
+    });
+
+    for (const issue of results.issues) {
+      assert.equal(issue.severity, 'high');
+      assert.equal(issue.confidence, 'medium');
+    }
+  });
+});
+
+// --- runMultiScan tests (concurrency) ---
+
+/**
+ * Create a tracking AI provider that records concurrency metrics.
+ * Uses closures to safely track active/max under concurrent execution.
+ */
+function createTrackingProvider(
+  delayMs: number,
+  responseFn?: (callIndex: number) => CheckResponse,
+): { provider: AIProvider; getMaxActive: () => number; getCurrentActive: () => number } {
+  let currentActive = 0;
+  let maxActive = 0;
+  let callIndex = 0;
+
+  const provider: AIProvider = {
+    async initialize() {},
+    async validateConfig() { return true; },
+    async executeCheck(_instructions: string, _repositoryPath: string): Promise<AIResponse> {
+      const myIndex = callIndex++;
+      currentActive++;
+      if (currentActive > maxActive) maxActive = currentActive;
+      try {
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+        const response = responseFn ? responseFn(myIndex) : { issues: [] };
+        return { raw: JSON.stringify(response), parsed: response };
+      } finally {
+        currentActive--;
+      }
+    },
+  };
+
+  return {
+    provider,
+    getMaxActive: () => maxActive,
+    getCurrentActive: () => currentActive,
+  };
+}
+
+describe('runMultiScan (concurrency)', () => {
+  const origMockSemgrep = process.env.AGHAST_MOCK_SEMGREP;
+
+  afterEach(() => {
+    if (origMockSemgrep === undefined) {
+      delete process.env.AGHAST_MOCK_SEMGREP;
+    } else {
+      process.env.AGHAST_MOCK_SEMGREP = origMockSemgrep;
+    }
+  });
+
+  it('concurrency limit respected (10 targets, concurrency 3)', async () => {
+    process.env.AGHAST_MOCK_SEMGREP = multiTarget10Sarif;
+    const { provider, getMaxActive } = createTrackingProvider(50);
+
+    const results = await runMultiScan({
+      repositoryPath: fixtureRepo,
+      checks: [makeMultiTargetCheck()],
+      aiProvider: provider,
+      concurrency: 3,
+    });
+
+    assert.equal(results.checks[0].status, 'PASS');
+    assert.equal(results.checks[0].targetsAnalyzed, 10);
+    assert.ok(getMaxActive() <= 3, `maxActive ${getMaxActive()} should be <= 3`);
+    assert.ok(getMaxActive() >= 2, `maxActive ${getMaxActive()} should be >= 2`);
+  });
+
+  it('default concurrency is 5 (10 targets, no concurrency specified)', async () => {
+    process.env.AGHAST_MOCK_SEMGREP = multiTarget10Sarif;
+    const { provider, getMaxActive } = createTrackingProvider(50);
+
+    const results = await runMultiScan({
+      repositoryPath: fixtureRepo,
+      checks: [makeMultiTargetCheck()],
+      aiProvider: provider,
+    });
+
+    assert.equal(results.checks[0].status, 'PASS');
+    assert.equal(results.checks[0].targetsAnalyzed, 10);
+    assert.ok(getMaxActive() <= 5, `maxActive ${getMaxActive()} should be <= 5`);
+    assert.ok(getMaxActive() >= 2, `maxActive ${getMaxActive()} should be >= 2`);
+  });
+
+  it('per-check concurrency overrides MultiScanOptions concurrency', async () => {
+    process.env.AGHAST_MOCK_SEMGREP = multiTarget10Sarif;
+    const { provider, getMaxActive } = createTrackingProvider(50);
+
+    const results = await runMultiScan({
+      repositoryPath: fixtureRepo,
+      checks: [makeMultiTargetCheck({
+        checkTarget: { type: 'semgrep', rules: 'unused.yaml', concurrency: 2 },
+      })],
+      aiProvider: provider,
+      concurrency: 10,
+    });
+
+    assert.equal(results.checks[0].status, 'PASS');
+    assert.equal(results.checks[0].targetsAnalyzed, 10);
+    assert.ok(getMaxActive() <= 2, `maxActive ${getMaxActive()} should be <= 2`);
+  });
+
+  it('result ordering preserved with variable delays', async () => {
+    process.env.AGHAST_MOCK_SEMGREP = multiTargetSarif; // 3 targets
+    const delays = [100, 10, 50];
+    let callIdx = 0;
+
+    const provider: AIProvider = {
+      async initialize() {},
+      async validateConfig() { return true; },
+      async executeCheck(): Promise<AIResponse> {
+        const myIdx = callIdx++;
+        const delay = delays[myIdx] ?? 10;
+        await new Promise((resolve) => setTimeout(resolve, delay));
+        const response: CheckResponse = {
+          issues: [{
+            file: `src/target-${myIdx}.ts`,
+            startLine: myIdx + 1,
+            endLine: myIdx + 1,
+            description: `Issue from target ${myIdx}`,
+          }],
+        };
+        return { raw: JSON.stringify(response), parsed: response };
+      },
+    };
+
+    const results = await runMultiScan({
+      repositoryPath: fixtureRepo,
+      checks: [makeMultiTargetCheck()],
+      aiProvider: provider,
+      concurrency: 3,
+    });
+
+    assert.equal(results.issues.length, 3);
+    // Issues should appear in target order (0, 1, 2) regardless of completion order
+    assert.equal(results.issues[0].description, 'Issue from target 0');
+    assert.equal(results.issues[1].description, 'Issue from target 1');
+    assert.equal(results.issues[2].description, 'Issue from target 2');
+  });
+
+  it('single target works with concurrency 5', async () => {
+    // Use multiTarget10Sarif with maxTargets: 1 to get a single target
+    process.env.AGHAST_MOCK_SEMGREP = multiTarget10Sarif;
+    const provider = createPassProvider();
+
+    const results = await runMultiScan({
+      repositoryPath: fixtureRepo,
+      checks: [makeMultiTargetCheck({ checkTarget: { type: 'semgrep', rules: 'unused-in-mock.yaml', maxTargets: 1 } })],
+      aiProvider: provider,
+      concurrency: 5,
+    });
+
+    assert.equal(results.checks[0].status, 'PASS');
+    assert.equal(results.checks[0].targetsAnalyzed, 1);
+    assert.equal(provider.callHistory.length, 1);
+  });
+});
+
+// --- runMultiScan tests (FLAG status) ---
+
+describe('runMultiScan (FLAG status)', () => {
+  const origMockSemgrep = process.env.AGHAST_MOCK_SEMGREP;
+
+  afterEach(() => {
+    if (origMockSemgrep === undefined) {
+      delete process.env.AGHAST_MOCK_SEMGREP;
+    } else {
+      process.env.AGHAST_MOCK_SEMGREP = origMockSemgrep;
+    }
+  });
+
+  it('single check: provider returns flagged:true → status FLAG, flaggedChecks=1', async () => {
+    const provider = new MockAIProvider({
+      response: { issues: [], flagged: true },
+    });
+
+    const results = await runMultiScan({
+      repositoryPath: fixtureRepo,
+      checks: [makeSqlCheck()],
+      aiProvider: provider,
+    });
+
+    assert.equal(results.checks[0].status, 'FLAG');
+    assert.equal(results.checks[0].issuesFound, 0);
+    assert.equal(results.summary.flaggedChecks, 1);
+    assert.equal(results.summary.passedChecks, 0);
+    assert.equal(results.summary.failedChecks, 0);
+    assert.equal(results.summary.totalIssues, 0);
+  });
+
+  it('FAIL overrides FLAG: issues present even if flagged:true → FAIL', async () => {
+    const provider = new MockAIProvider({
+      response: {
+        issues: [{ file: 'src/example.ts', startLine: 4, endLine: 4, description: 'Issue.' }],
+        flagged: true,
+      },
+    });
+
+    const results = await runMultiScan({
+      repositoryPath: fixtureRepo,
+      checks: [makeSqlCheck()],
+      aiProvider: provider,
+    });
+
+    assert.equal(results.checks[0].status, 'FAIL');
+    assert.equal(results.summary.failedChecks, 1);
+    assert.equal(results.summary.flaggedChecks, 0);
+  });
+
+  it('multi-target: all 3 targets flag → check status FLAG', async () => {
+    process.env.AGHAST_MOCK_SEMGREP = multiTargetSarif;
+    const provider = new MockAIProvider({
+      response: { issues: [], flagged: true },
+    });
+
+    const results = await runMultiScan({
+      repositoryPath: fixtureRepo,
+      checks: [makeMultiTargetCheck()],
+      aiProvider: provider,
+    });
+
+    assert.equal(results.checks[0].status, 'FLAG');
+    assert.equal(results.checks[0].targetsAnalyzed, 3);
+    assert.equal(results.summary.flaggedChecks, 1);
+  });
+
+  it('multi-target: FLAG priority over ERROR (some flag, some error, no issues) → FLAG', async () => {
+    process.env.AGHAST_MOCK_SEMGREP = multiTargetSarif;
+
+    // Calls 0 and 1 return flagged, call 2 throws
+    let flagErrCallCount = 0;
+    const mixedFlagProvider = {
+      async initialize() {},
+      async validateConfig() { return true; },
+      async executeCheck(_instructions: string, _repositoryPath: string) {
+        const n = flagErrCallCount++;
+        if (n < 2) {
+          const response = { issues: [], flagged: true };
+          return { raw: JSON.stringify(response), parsed: response };
+        }
+        throw new Error('AI timeout');
+      },
+    };
+
+    const results = await runMultiScan({
+      repositoryPath: fixtureRepo,
+      checks: [makeMultiTargetCheck()],
+      aiProvider: mixedFlagProvider,
+    });
+
+    assert.equal(results.checks[0].status, 'FLAG');
+    assert.equal(results.summary.flaggedChecks, 1);
+    assert.equal(results.summary.errorChecks, 0);
+  });
+
+  it('multi-target: FAIL overrides FLAG (some flag, one has issues) → FAIL', async () => {
+    process.env.AGHAST_MOCK_SEMGREP = multiTargetSarif;
+    const provider = new MockAIProvider();
+    provider.setResponseQueue([
+      { issues: [], flagged: true }, // target 1: flag
+      {
+        issues: [{ file: 'src/example.ts', startLine: 4, endLine: 4, description: 'Issue.' }],
+      }, // target 2: fail
+      { issues: [], flagged: true }, // target 3: flag
+    ]);
+
+    const results = await runMultiScan({
+      repositoryPath: fixtureRepo,
+      checks: [makeMultiTargetCheck()],
+      aiProvider: provider,
+    });
+
+    assert.equal(results.checks[0].status, 'FAIL');
+    assert.equal(results.summary.failedChecks, 1);
+    assert.equal(results.summary.flaggedChecks, 0);
+  });
+
+  it('provider throws → ERROR; other checks in scan continue', async () => {
+    let callCount = 0;
+    const mixedProvider = {
+      async initialize() {},
+      async validateConfig() { return true; },
+      async executeCheck(_instructions: string, _repositoryPath: string) {
+        const n = callCount++;
+        if (n === 0) throw new Error('AI provider request timed out after 60000ms');
+        const response = { issues: [] };
+        return { raw: JSON.stringify(response), parsed: response };
+      },
+    };
+
+    const results = await runMultiScan({
+      repositoryPath: fixtureRepo,
+      checks: [
+        makeCheckAndDetails('check-1', 'Check One'),
+        makeCheckAndDetails('check-2', 'Check Two'),
+      ],
+      aiProvider: mixedProvider,
+    });
+
+    assert.equal(results.checks.length, 2);
+    assert.equal(results.checks[0].status, 'ERROR');
+    assert.ok(results.checks[0].error!.includes('timed out'));
+    assert.equal(results.checks[1].status, 'PASS');
+    assert.equal(results.summary.errorChecks, 1);
+    assert.equal(results.summary.passedChecks, 1);
+  });
+
+  it('malformed response → ERROR with rawAiResponse populated', async () => {
+    const provider = createMalformedProvider();
+    const results = await runMultiScan({
+      repositoryPath: fixtureRepo,
+      checks: [makeSqlCheck()],
+      aiProvider: provider,
+    });
+
+    assert.equal(results.checks[0].status, 'ERROR');
+    assert.ok(results.checks[0].rawAiResponse, 'rawAiResponse should be populated');
+    assert.ok((results.checks[0].rawAiResponse as string).length > 0);
+  });
+
+  it('3 checks, middle errors: all 3 summaries returned, errorChecks=1, passedChecks=2', async () => {
+    const provider = new MockAIProvider();
+    provider.setResponseQueue([
+      { issues: [] }, // check-1: PASS
+    ]);
+    // After queue exhausted, falls to rawResponse
+    provider.setRawResponse('not valid json'); // check-2: ERROR (malformed)
+
+    // For check-3, we need PASS again — but rawResponse is set to invalid now.
+    // Use a custom approach: queue with 2 entries + raw for the third would be ERROR.
+    // Instead, reset after queue exhaustion by adding a third response.
+    provider.setResponseQueue([
+      { issues: [] }, // check-1: PASS
+      // check-2: will use rawResponse (malformed) → ERROR
+      { issues: [] }, // this won't be reached for check-2
+    ]);
+
+    // Better approach: use a tracking provider
+    let callCount2 = 0;
+    const sequentialProvider = {
+      async initialize() {},
+      async validateConfig() { return true; },
+      async executeCheck(_instructions: string, _repositoryPath: string) {
+        const n = callCount2++;
+        if (n === 1) {
+          // Middle check: return malformed
+          return { raw: 'not valid json', parsed: undefined };
+        }
+        const response = { issues: [] };
+        return { raw: JSON.stringify(response), parsed: response };
+      },
+    };
+
+    const results = await runMultiScan({
+      repositoryPath: fixtureRepo,
+      checks: [
+        makeCheckAndDetails('check-1', 'Check One'),
+        makeCheckAndDetails('check-2', 'Check Two'),
+        makeCheckAndDetails('check-3', 'Check Three'),
+      ],
+      aiProvider: sequentialProvider,
+    });
+
+    assert.equal(results.checks.length, 3);
+    assert.equal(results.summary.totalChecks, 3);
+    assert.equal(results.summary.errorChecks, 1);
+    assert.equal(results.summary.passedChecks, 2);
+    assert.equal(results.checks[0].status, 'PASS');
+    assert.equal(results.checks[1].status, 'ERROR');
+    assert.equal(results.checks[2].status, 'PASS');
+  });
+});
+
+// --- runMultiScan tests (token usage) ---
+
+describe('runMultiScan (token usage)', () => {
+  const origMockSemgrep = process.env.AGHAST_MOCK_SEMGREP;
+
+  afterEach(() => {
+    if (origMockSemgrep === undefined) {
+      delete process.env.AGHAST_MOCK_SEMGREP;
+    } else {
+      process.env.AGHAST_MOCK_SEMGREP = origMockSemgrep;
+    }
+  });
+
+  it('single check: token usage propagated to check summary and scan results', async () => {
+    const provider = createPassProviderWithTokens({ inputTokens: 100, outputTokens: 50, totalTokens: 150 });
+    const results = await runMultiScan({
+      repositoryPath: fixtureRepo,
+      checks: [makeSqlCheck()],
+      aiProvider: provider,
+    });
+
+    assert.ok(results.checks[0].tokenUsage, 'Check summary should have tokenUsage');
+    assert.equal(results.checks[0].tokenUsage!.inputTokens, 100);
+    assert.equal(results.checks[0].tokenUsage!.outputTokens, 50);
+    assert.equal(results.checks[0].tokenUsage!.totalTokens, 150);
+
+    assert.ok(results.tokenUsage, 'Scan results should have tokenUsage');
+    assert.equal(results.tokenUsage!.inputTokens, 100);
+    assert.equal(results.tokenUsage!.outputTokens, 50);
+    assert.equal(results.tokenUsage!.totalTokens, 150);
+  });
+
+  it('multi-check: token usage aggregated across checks', async () => {
+    const provider = createPassProviderWithTokens({ inputTokens: 200, outputTokens: 100, totalTokens: 300 });
+    const results = await runMultiScan({
+      repositoryPath: fixtureRepo,
+      checks: [
+        makeCheckAndDetails('check-1', 'Check One'),
+        makeCheckAndDetails('check-2', 'Check Two'),
+      ],
+      aiProvider: provider,
+    });
+
+    // Each check gets 200/100/300
+    assert.ok(results.tokenUsage, 'Scan results should have aggregated tokenUsage');
+    assert.equal(results.tokenUsage!.inputTokens, 400);
+    assert.equal(results.tokenUsage!.outputTokens, 200);
+    assert.equal(results.tokenUsage!.totalTokens, 600);
+  });
+
+  it('no token usage from provider: fields undefined', async () => {
+    const provider = createPassProvider(); // no tokenUsage
+    const results = await runMultiScan({
+      repositoryPath: fixtureRepo,
+      checks: [makeSqlCheck()],
+      aiProvider: provider,
+    });
+
+    assert.equal(results.checks[0].tokenUsage, undefined);
+    assert.equal(results.tokenUsage, undefined);
+  });
+
+  it('multi-target: token usage aggregated across targets', async () => {
+    process.env.AGHAST_MOCK_SEMGREP = multiTargetSarif;
+    const provider = createPassProviderWithTokens({ inputTokens: 50, outputTokens: 25, totalTokens: 75 });
+
+    const results = await runMultiScan({
+      repositoryPath: fixtureRepo,
+      checks: [makeMultiTargetCheck()],
+      aiProvider: provider,
+    });
+
+    // 3 targets × 50/25/75
+    assert.ok(results.checks[0].tokenUsage, 'Multi-target check should have aggregated tokenUsage');
+    assert.equal(results.checks[0].tokenUsage!.inputTokens, 150);
+    assert.equal(results.checks[0].tokenUsage!.outputTokens, 75);
+    assert.equal(results.checks[0].tokenUsage!.totalTokens, 225);
+
+    assert.ok(results.tokenUsage, 'Scan results should have tokenUsage');
+    assert.equal(results.tokenUsage!.totalTokens, 225);
+  });
+
+  it('ERROR check contributes no token usage (provider throws)', async () => {
+    const provider = createTimeoutProvider(); // throws, no tokenUsage
+    const results = await runMultiScan({
+      repositoryPath: fixtureRepo,
+      checks: [makeSqlCheck()],
+      aiProvider: provider,
+    });
+
+    assert.equal(results.checks[0].status, 'ERROR');
+    assert.equal(results.checks[0].tokenUsage, undefined);
+    assert.equal(results.tokenUsage, undefined);
+  });
+});
+// --- runMultiScan tests (semgrep-only checks) ---
+
+function makeSemgrepOnlyCheck(
+  overrides?: Partial<SecurityCheck>,
+): { check: SecurityCheck; details: CheckDetails } {
+  return {
+    check: {
+      id: 'sgo-check',
+      name: 'Semgrep-Only Check',
+      repositories: [],
+      checkTarget: {
+        type: 'semgrep-only',
+        rules: 'unused-in-mock.yaml',
+      },
+      severity: 'high',
+      confidence: 'high',
+      ...overrides,
+    },
+    details: {
+      id: 'sgo-check',
+      name: 'Semgrep-Only Check',
+      overview: '',
+      content: '',
+    },
+  };
+}
+
+describe('runMultiScan (semgrep-only checks)', () => {
+  const origMockSemgrep = process.env.AGHAST_MOCK_SEMGREP;
+
+  afterEach(() => {
+    if (origMockSemgrep === undefined) {
+      delete process.env.AGHAST_MOCK_SEMGREP;
+    } else {
+      process.env.AGHAST_MOCK_SEMGREP = origMockSemgrep;
+    }
+  });
+
+  it('0 findings → PASS, targetsAnalyzed: 0, no AI calls', async () => {
+    process.env.AGHAST_MOCK_SEMGREP = emptySarif;
+    const provider = createPassProvider();
+
+    const results = await runMultiScan({
+      repositoryPath: fixtureRepo,
+      checks: [makeSemgrepOnlyCheck()],
+      aiProvider: provider,
+    });
+
+    assert.equal(results.checks[0].status, 'PASS');
+    assert.equal(results.checks[0].targetsAnalyzed, 0);
+    assert.equal(results.checks[0].issuesFound, 0);
+    assert.equal(results.issues.length, 0);
+    assert.equal(provider.callHistory.length, 0, 'No AI calls for semgrep-only');
+  });
+
+  it('3 findings → FAIL with correct SecurityIssue mapping', async () => {
+    process.env.AGHAST_MOCK_SEMGREP = multiTargetSarif;
+    const provider = createPassProvider();
+
+    const results = await runMultiScan({
+      repositoryPath: fixtureRepo,
+      checks: [makeSemgrepOnlyCheck()],
+      aiProvider: provider,
+    });
+
+    assert.equal(results.checks[0].status, 'FAIL');
+    assert.equal(results.checks[0].targetsAnalyzed, 3);
+    assert.equal(results.checks[0].issuesFound, 3);
+    assert.equal(results.issues.length, 3);
+    assert.equal(provider.callHistory.length, 0, 'No AI calls for semgrep-only');
+
+    // Verify issue mapping from SARIF targets
+    const issue = results.issues[0];
+    assert.equal(issue.checkId, 'sgo-check');
+    assert.equal(issue.checkName, 'Semgrep-Only Check');
+    assert.equal(issue.file, 'src/example.ts');
+    assert.equal(issue.startLine, 3);
+    assert.equal(issue.endLine, 5);
+    // Description comes from SARIF message
+    assert.ok(issue.description.length > 0, 'Description should be from SARIF message');
+    // codeSnippet extracted from source file
+    assert.ok(issue.codeSnippet, 'Should have codeSnippet from source file');
+    assert.ok(issue.codeSnippet!.includes('SELECT'), 'Snippet should contain SQL from fixture');
+  });
+
+  it('severity and confidence from check config', async () => {
+    process.env.AGHAST_MOCK_SEMGREP = multiTargetSarif;
+    const provider = createPassProvider();
+
+    const results = await runMultiScan({
+      repositoryPath: fixtureRepo,
+      checks: [makeSemgrepOnlyCheck({ severity: 'critical', confidence: 'medium' })],
+      aiProvider: provider,
+    });
+
+    for (const issue of results.issues) {
+      assert.equal(issue.severity, 'critical');
+      assert.equal(issue.confidence, 'medium');
+    }
+  });
+
+  it('maxTargets limiting', async () => {
+    process.env.AGHAST_MOCK_SEMGREP = multiTargetSarif;
+    const provider = createPassProvider();
+
+    const results = await runMultiScan({
+      repositoryPath: fixtureRepo,
+      checks: [makeSemgrepOnlyCheck({
+        checkTarget: { type: 'semgrep-only', rules: 'unused.yaml', maxTargets: 1 },
+      })],
+      aiProvider: provider,
+    });
+
+    assert.equal(results.checks[0].targetsAnalyzed, 1);
+    assert.equal(results.issues.length, 1);
+    assert.equal(provider.callHistory.length, 0, 'No AI calls');
+  });
+
+  it('Semgrep failure → ERROR status', async () => {
+    // No AGHAST_MOCK_SEMGREP set and no real semgrep → error
+    delete process.env.AGHAST_MOCK_SEMGREP;
+    const provider = createPassProvider();
+
+    const results = await runMultiScan({
+      repositoryPath: fixtureRepo,
+      checks: [makeSemgrepOnlyCheck()],
+      aiProvider: provider,
+    });
+
+    assert.equal(results.checks[0].status, 'ERROR');
+    assert.ok(results.checks[0].error, 'Should have error message');
+    assert.equal(results.issues.length, 0);
+    assert.equal(provider.callHistory.length, 0, 'No AI calls');
+  });
+
+  it('no tokenUsage on summary', async () => {
+    process.env.AGHAST_MOCK_SEMGREP = multiTargetSarif;
+    const provider = createPassProviderWithTokens({ inputTokens: 100, outputTokens: 50, totalTokens: 150 });
+
+    const results = await runMultiScan({
+      repositoryPath: fixtureRepo,
+      checks: [makeSemgrepOnlyCheck()],
+      aiProvider: provider,
+    });
+
+    assert.equal(results.checks[0].tokenUsage, undefined, 'semgrep-only should have no tokenUsage');
+    assert.equal(results.tokenUsage, undefined, 'Aggregate tokenUsage should be undefined');
+  });
+
+  it('mixed check: semgrep-only + AI check both produce correct results', async () => {
+    process.env.AGHAST_MOCK_SEMGREP = multiTargetSarif;
+    const provider = createPassProvider();
+
+    const results = await runMultiScan({
+      repositoryPath: fixtureRepo,
+      checks: [
+        makeSemgrepOnlyCheck(),
+        makeCheckAndDetails('ai-check', 'AI Check'),
+      ],
+      aiProvider: provider,
+    });
+
+    assert.equal(results.checks.length, 2);
+
+    // semgrep-only check: FAIL with 3 findings, no AI
+    assert.equal(results.checks[0].checkId, 'sgo-check');
+    assert.equal(results.checks[0].status, 'FAIL');
+    assert.equal(results.checks[0].targetsAnalyzed, 3);
+    assert.equal(results.checks[0].issuesFound, 3);
+
+    // AI check: PASS, AI was called
+    assert.equal(results.checks[1].checkId, 'ai-check');
+    assert.equal(results.checks[1].status, 'PASS');
+
+    // Only the AI check should have called the provider
+    assert.equal(provider.callHistory.length, 1, 'Only AI check should call provider');
+  });
+});
+
+// --- Fatal error abort tests ---
+
+describe('runMultiScan (fatal error abort)', () => {
+  afterEach(() => {
+    delete process.env.AGHAST_MOCK_SEMGREP;
+  });
+
+  it('FatalProviderError aborts remaining checks', async () => {
+    let callCount = 0;
+    const fatalProvider: AIProvider = {
+      async initialize() {},
+      async validateConfig() { return true; },
+      async executeCheck() {
+        const n = callCount++;
+        if (n === 0) {
+          // Check 1: PASS
+          const response = { issues: [] };
+          return { raw: JSON.stringify(response), parsed: response };
+        }
+        // Check 2: fatal error
+        throw new FatalProviderError('AI provider authentication failed (401)');
+      },
+    };
+
+    const results = await runMultiScan({
+      repositoryPath: fixtureRepo,
+      checks: [
+        makeCheckAndDetails('check-1', 'Check One'),
+        makeCheckAndDetails('check-2', 'Check Two'),
+        makeCheckAndDetails('check-3', 'Check Three'),
+      ],
+      aiProvider: fatalProvider,
+    });
+
+    assert.equal(results.checks.length, 3, 'All 3 checks should have summaries');
+    assert.equal(results.checks[0].status, 'PASS', 'Check 1 should PASS');
+    assert.equal(results.checks[1].status, 'ERROR', 'Check 2 should ERROR (fatal)');
+    assert.ok(results.checks[1].error!.includes('authentication failed'), 'Check 2 error should mention auth');
+    assert.equal(results.checks[2].status, 'ERROR', 'Check 3 should ERROR (aborted)');
+    assert.ok(results.checks[2].error!.includes('Scan aborted'), 'Check 3 error should say aborted');
+    assert.equal(results.summary.errorChecks, 2);
+    assert.equal(results.summary.passedChecks, 1);
+    assert.equal(callCount, 2, 'Provider should only be called twice (not for check 3)');
+  });
+
+  it('non-fatal errors still continue to next check (regression)', async () => {
+    let callCount = 0;
+    const mixedProvider: AIProvider = {
+      async initialize() {},
+      async validateConfig() { return true; },
+      async executeCheck() {
+        const n = callCount++;
+        if (n === 0) throw new Error('AI provider request timed out after 60000ms');
+        const response = { issues: [] };
+        return { raw: JSON.stringify(response), parsed: response };
+      },
+    };
+
+    const results = await runMultiScan({
+      repositoryPath: fixtureRepo,
+      checks: [
+        makeCheckAndDetails('check-1', 'Check One'),
+        makeCheckAndDetails('check-2', 'Check Two'),
+      ],
+      aiProvider: mixedProvider,
+    });
+
+    assert.equal(results.checks.length, 2);
+    assert.equal(results.checks[0].status, 'ERROR');
+    assert.equal(results.checks[1].status, 'PASS');
+    assert.equal(callCount, 2, 'Provider should be called for both checks');
+  });
+
+  it('FatalProviderError on first check aborts all remaining', async () => {
+    const fatalProvider: AIProvider = {
+      async initialize() {},
+      async validateConfig() { return true; },
+      async executeCheck() {
+        throw new FatalProviderError('AI provider rate limit reached');
+      },
+    };
+
+    const results = await runMultiScan({
+      repositoryPath: fixtureRepo,
+      checks: [
+        makeCheckAndDetails('check-1', 'Check One'),
+        makeCheckAndDetails('check-2', 'Check Two'),
+      ],
+      aiProvider: fatalProvider,
+    });
+
+    assert.equal(results.checks.length, 2, 'Both checks should have summaries');
+    assert.equal(results.checks[0].status, 'ERROR', 'Check 1 should ERROR (fatal)');
+    assert.ok(results.checks[0].error!.includes('rate limit'), 'Check 1 error should mention rate limit');
+    assert.equal(results.checks[1].status, 'ERROR', 'Check 2 should ERROR (aborted)');
+    assert.ok(results.checks[1].error!.includes('Scan aborted'), 'Check 2 error should say aborted');
+  });
+
+  it('FatalProviderError in multi-target check aborts remaining checks', async () => {
+    process.env.AGHAST_MOCK_SEMGREP = multiTargetSarif;
+
+    const fatalProvider: AIProvider = {
+      async initialize() {},
+      async validateConfig() { return true; },
+      async executeCheck() {
+        throw new FatalProviderError('AI provider authentication failed (401)');
+      },
+    };
+
+    const multiTargetCheck: { check: SecurityCheck; details: CheckDetails } = {
+      check: {
+        id: 'mt-check',
+        name: 'Multi-target Check',
+        repositories: [],
+        instructionsFile: 'mt-check.md',
+        checkTarget: { type: 'semgrep', rules: 'rule.yaml' },
+      },
+      details: {
+        id: 'mt-check',
+        name: 'Multi-target Check',
+        overview: 'Test.',
+        content: '### Multi-target\n\n#### Overview\nTest.\n',
+      },
+    };
+
+    const results = await runMultiScan({
+      repositoryPath: fixtureRepo,
+      checks: [
+        multiTargetCheck,
+        makeCheckAndDetails('check-2', 'Check Two'),
+      ],
+      aiProvider: fatalProvider,
+    });
+
+    assert.equal(results.checks.length, 2, 'Both checks should have summaries');
+    assert.equal(results.checks[0].status, 'ERROR', 'Multi-target check should ERROR');
+    assert.ok(results.checks[0].error!.includes('authentication failed'), 'Should mention auth error');
+    assert.equal(results.checks[1].status, 'ERROR', 'Check 2 should ERROR (aborted)');
+    assert.ok(results.checks[1].error!.includes('Scan aborted'), 'Check 2 should say aborted');
+  });
+});

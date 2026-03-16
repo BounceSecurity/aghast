@@ -1,0 +1,5 @@
+{
+  "id": "aghast-sql-injection",
+  "name": "SQL Injection Prevention",
+  "instructionsFile": "aghast-sql-injection.md"
+}

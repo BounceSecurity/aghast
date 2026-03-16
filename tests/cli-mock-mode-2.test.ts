@@ -1,0 +1,539 @@
+/**
+ * Integration tests for CLI mock AI provider mode (part 2).
+ *
+ * CLI flags, env vars, runtime config, ERROR/FLAG scenarios, debug mode,
+ * and semgrep-only checks.
+ *
+ * Part 1 is in cli-mock-mode.test.ts.
+ */
+
+import { describe, it, afterEach } from 'node:test';
+import assert from 'node:assert/strict';
+import { resolve } from 'node:path';
+import { readFile, unlink, access } from 'node:fs/promises';
+import {
+  testDir as __dirname,
+  fixtureRepo,
+  singleCheckConfigDir,
+  multiTargetConfigDir,
+  flagCheckConfigDir,
+  mixedResultsConfigDir,
+  semgrepOnlyConfigDir,
+  mixedWithSemgrepOnlyConfigDir,
+  cli3TargetsSarif,
+  emptyResultsSarif,
+  failFixtureRepo,
+  malformedFixture,
+  createScopedHelpers,
+} from './cli-test-helpers.js';
+
+// Use scoped output paths to avoid conflicts when test files run concurrently
+const { runCLI, runCLISarif, cleanupOutput, readResults, sarifOutputFile } = createScopedHelpers('part2');
+
+// ─── Iteration 6: CLI flags, env vars, runtime config ────────────────────────
+
+describe('CLI: --fail-on-check-failure flag', () => {
+  afterEach(cleanupOutput);
+
+  it('--fail-on-check-failure with PASS response exits 0', async () => {
+    const { exitCode } = await runCLI({
+      AGHAST_MOCK_AI: 'true',
+    }, [fixtureRepo, '--config-dir', singleCheckConfigDir, '--fail-on-check-failure']);
+    assert.equal(exitCode, 0);
+  });
+
+  it('--fail-on-check-failure with FAIL response exits 1', async () => {
+    const { exitCode } = await runCLI({
+      AGHAST_MOCK_AI: failFixtureRepo,
+    }, [fixtureRepo, '--config-dir', singleCheckConfigDir, '--fail-on-check-failure']);
+    assert.equal(exitCode, 1);
+  });
+
+  it('without --fail-on-check-failure flag, FAIL response still exits 0', async () => {
+    const { exitCode } = await runCLI({
+      AGHAST_MOCK_AI: failFixtureRepo,
+    }, [fixtureRepo, '--config-dir', singleCheckConfigDir]);
+    assert.equal(exitCode, 0);
+  });
+});
+
+describe('CLI: --output flag', () => {
+  it('--output <path> writes file to specified path', async () => {
+    const tmpOutput = resolve(__dirname, 'fixtures', 'tmp-output.json');
+    try {
+      const { exitCode } = await runCLI(
+        { AGHAST_MOCK_AI: 'true' },
+        [fixtureRepo, '--config-dir', singleCheckConfigDir, '--output', tmpOutput]
+      );
+      assert.equal(exitCode, 0);
+      await access(tmpOutput); // throws if file doesn't exist
+    } finally {
+      try {
+        await unlink(tmpOutput);
+      } catch {
+        // File may not exist
+      }
+    }
+  });
+});
+
+describe('CLI: ANTHROPIC_API_KEY and --ai-provider flag', () => {
+  afterEach(cleanupOutput);
+
+  it('missing ANTHROPIC_API_KEY exits 1 with error message', async () => {
+    const { exitCode, stderr } = await runCLI({
+      ANTHROPIC_API_KEY: '',
+      AGHAST_LOCAL_CLAUDE: '',
+      AGHAST_MOCK_AI: '',
+    }, [fixtureRepo, '--config-dir', singleCheckConfigDir]);
+    assert.equal(exitCode, 1);
+    assert.ok(stderr.includes('ANTHROPIC_API_KEY'));
+  });
+
+  it('AGHAST_LOCAL_CLAUDE=true skips ANTHROPIC_API_KEY requirement', async () => {
+    // This would fail at the API call stage (no real local Claude in tests),
+    // but it should NOT fail with the "ANTHROPIC_API_KEY is required" error.
+    // Use a short timeout — we only need to confirm the API key check was skipped,
+    // not wait for the full local Claude connection attempt to time out.
+    const { stderr } = await runCLI({
+      ANTHROPIC_API_KEY: undefined,
+      AGHAST_LOCAL_CLAUDE: 'true',
+      AGHAST_MOCK_AI: undefined,
+    }, [fixtureRepo, '--config-dir', singleCheckConfigDir], { timeout: 5_000 });
+    assert.ok(!stderr.includes('ANTHROPIC_API_KEY environment variable is required'));
+  });
+
+  it('unknown --ai-provider exits 1 with error message', async () => {
+    const { exitCode, stderr } = await runCLI({
+      AGHAST_MOCK_AI: undefined,
+    }, [fixtureRepo, '--config-dir', singleCheckConfigDir, '--ai-provider', 'unknown-provider']);
+    assert.equal(exitCode, 1);
+    assert.ok(stderr.includes('Unknown AI provider'));
+  });
+
+  it('unknown --ai-provider error message lists known providers from registry', async () => {
+    const { exitCode, stderr } = await runCLI({
+      AGHAST_MOCK_AI: undefined,
+    }, [fixtureRepo, '--config-dir', singleCheckConfigDir, '--ai-provider', 'unknown-provider']);
+    assert.equal(exitCode, 1);
+    assert.ok(stderr.includes('Unknown AI provider'), 'Should mention unknown provider');
+    assert.ok(stderr.includes('claude-code'), 'Error should list claude-code as a valid option from registry');
+  });
+
+  it('--ai-provider claude-code (explicit) with mock mode exits 0', async () => {
+    const { exitCode } = await runCLI({
+      AGHAST_MOCK_AI: 'true',
+    }, [fixtureRepo, '--config-dir', singleCheckConfigDir, '--ai-provider', 'claude-code']);
+    assert.equal(exitCode, 0);
+  });
+
+  it('--model flag is accepted (no error)', async () => {
+    const { exitCode } = await runCLI({
+      AGHAST_MOCK_AI: 'true',
+    }, [fixtureRepo, '--config-dir', singleCheckConfigDir, '--model', 'claude-opus-4-6']);
+    assert.equal(exitCode, 0);
+  });
+});
+
+describe('CLI: --runtime-config flag', () => {
+  afterEach(cleanupOutput);
+
+  it('malformed runtime config exits 1 with error message', async () => {
+    const malformedPath = resolve(__dirname, 'fixtures', 'runtime-config', 'malformed.json');
+    const { exitCode, stderr } = await runCLI({
+      AGHAST_MOCK_AI: 'true',
+    }, [fixtureRepo, '--config-dir', singleCheckConfigDir, '--runtime-config', malformedPath]);
+    assert.equal(exitCode, 1);
+    assert.ok(stderr.includes('Invalid JSON'));
+  });
+
+  it('valid runtime config is loaded without error', async () => {
+    const validPath = resolve(__dirname, 'fixtures', 'runtime-config', 'valid.json');
+    const { exitCode } = await runCLI({
+      AGHAST_MOCK_AI: 'true',
+    }, [fixtureRepo, '--config-dir', singleCheckConfigDir, '--runtime-config', validPath]);
+    assert.equal(exitCode, 0);
+  });
+
+  it('missing runtime config file uses defaults', async () => {
+    const absentPath = resolve(__dirname, 'fixtures', 'runtime-config', 'nonexistent.json');
+    const { exitCode } = await runCLI({
+      AGHAST_MOCK_AI: 'true',
+    }, [fixtureRepo, '--config-dir', singleCheckConfigDir, '--runtime-config', absentPath]);
+    assert.equal(exitCode, 0);
+  });
+});
+
+// ─── Iteration 7: ERROR and FLAG scenarios ───────────────────────────────────
+
+const flagResponseFixture = resolve(__dirname, 'fixtures', 'ai-responses', 'flag-response.json');
+
+describe('CLI mock mode: ERROR and FLAG scenarios', () => {
+  afterEach(cleanupOutput);
+
+  it('FLAG single check: AGHAST_MOCK_AI=<flag-response> → status FLAG, flaggedChecks=1', async () => {
+    const { exitCode } = await runCLI(
+      { AGHAST_MOCK_AI: flagResponseFixture },
+      [fixtureRepo, '--config-dir', flagCheckConfigDir],
+    );
+    assert.equal(exitCode, 0);
+
+    const results = await readResults();
+    const checks = results.checks as Array<Record<string, unknown>>;
+    const summary = results.summary as Record<string, number>;
+
+    assert.equal(checks[0].status, 'FLAG');
+    assert.equal(checks[0].issuesFound, 0);
+    assert.equal(summary.flaggedChecks, 1);
+    assert.equal(summary.passedChecks, 0);
+    assert.equal(summary.failedChecks, 0);
+    assert.equal(summary.totalIssues, 0);
+  });
+
+  it('FLAG single check: stdout shows FLAG in summary banner', async () => {
+    const { stdout, stderr } = await runCLI(
+      { AGHAST_MOCK_AI: flagResponseFixture },
+      [fixtureRepo, '--config-dir', flagCheckConfigDir],
+    );
+    const combined = stdout + stderr;
+    assert.ok(combined.includes('AGHAST Scan Complete: FLAG'), 'Summary banner should show FLAG');
+  });
+
+  it('FLAG multi-target: all targets flag → check status FLAG, flaggedChecks=1', async () => {
+    const { exitCode } = await runCLI(
+      { AGHAST_MOCK_AI: flagResponseFixture, AGHAST_MOCK_SEMGREP: cli3TargetsSarif },
+      [fixtureRepo, '--config-dir', multiTargetConfigDir],
+    );
+    assert.equal(exitCode, 0);
+
+    const results = await readResults();
+    const checks = results.checks as Array<Record<string, unknown>>;
+    const summary = results.summary as Record<string, number>;
+
+    assert.equal(checks[0].status, 'FLAG');
+    assert.equal(checks[0].targetsAnalyzed, 3);
+    assert.equal(summary.flaggedChecks, 1);
+    assert.equal(summary.totalIssues, 0);
+  });
+
+  it('malformed AI response via AGHAST_MOCK_AI=<path> → ERROR status, exit code 0', async () => {
+    const { exitCode } = await runCLI(
+      { AGHAST_MOCK_AI: malformedFixture },
+      [fixtureRepo, '--config-dir', singleCheckConfigDir],
+    );
+    assert.equal(exitCode, 0);
+
+    const results = await readResults();
+    const checks = results.checks as Array<Record<string, unknown>>;
+    assert.equal(checks[0].status, 'ERROR');
+    assert.ok(checks[0].rawAiResponse, 'ERROR check should include rawAiResponse');
+  });
+
+  it('malformed AI + --fail-on-check-failure → exit code 1', async () => {
+    const { exitCode } = await runCLI(
+      { AGHAST_MOCK_AI: malformedFixture },
+      [fixtureRepo, '--config-dir', singleCheckConfigDir, '--fail-on-check-failure'],
+    );
+    assert.equal(exitCode, 1);
+  });
+});
+
+// ─── Iteration 10: --debug flag and token usage ──────────────────────────────
+
+describe('CLI mock mode: --debug flag', () => {
+  afterEach(cleanupOutput);
+
+  it('--debug produces [debug] output in stdout/stderr', async () => {
+    const { stdout, stderr } = await runCLI(
+      { AGHAST_MOCK_AI: 'true' },
+      [fixtureRepo, '--config-dir', singleCheckConfigDir, '--debug'],
+    );
+    const combined = stdout + stderr;
+    assert.ok(combined.includes('[debug]'), 'Debug output should contain [debug] tags');
+  });
+
+  it('--debug does not affect scan results or exit code', async () => {
+    const { exitCode } = await runCLI(
+      { AGHAST_MOCK_AI: 'true' },
+      [fixtureRepo, '--config-dir', singleCheckConfigDir, '--debug'],
+    );
+    assert.equal(exitCode, 0);
+
+    const results = await readResults();
+    const checks = results.checks as Array<Record<string, unknown>>;
+    assert.equal(checks[0].status, 'PASS');
+    assert.equal(checks[0].issuesFound, 0);
+  });
+
+  it('non-debug mode does not show [debug] output', async () => {
+    const { stdout, stderr } = await runCLI(
+      { AGHAST_MOCK_AI: 'true' },
+      [fixtureRepo, '--config-dir', singleCheckConfigDir],
+    );
+    const combined = stdout + stderr;
+    assert.ok(!combined.includes('[debug]'), 'Non-debug output should NOT contain [debug] tags');
+  });
+
+  it('--debug with FAIL response still exits correctly (no flag)', async () => {
+    const { exitCode } = await runCLI(
+      { AGHAST_MOCK_AI: failFixtureRepo },
+      [fixtureRepo, '--config-dir', singleCheckConfigDir, '--debug'],
+    );
+    assert.equal(exitCode, 0);
+
+    const results = await readResults();
+    const checks = results.checks as Array<Record<string, unknown>>;
+    assert.equal(checks[0].status, 'FAIL');
+  });
+
+  it('--debug with --fail-on-check-failure still exits 1 on FAIL', async () => {
+    const { exitCode } = await runCLI(
+      { AGHAST_MOCK_AI: failFixtureRepo },
+      [fixtureRepo, '--config-dir', singleCheckConfigDir, '--debug', '--fail-on-check-failure'],
+    );
+    assert.equal(exitCode, 1);
+  });
+});
+
+// ─── Continued: ERROR and FLAG scenarios ─────────────────────────────────────
+
+describe('CLI mock mode: ERROR and FLAG scenarios (continued)', () => {
+  afterEach(cleanupOutput);
+
+  it('partial results: Semgrep error + repo-wide PASS → 2 checks, errorChecks=1, exit 0', async () => {
+    const { exitCode } = await runCLI(
+      { AGHAST_MOCK_AI: 'true', AGHAST_MOCK_SEMGREP: '/nonexistent/mock-semgrep.sarif' },
+      [fixtureRepo, '--config-dir', mixedResultsConfigDir],
+    );
+    assert.equal(exitCode, 0);
+
+    const results = await readResults();
+    const checks = results.checks as Array<Record<string, unknown>>;
+    const summary = results.summary as Record<string, number>;
+
+    assert.equal(checks.length, 2, 'Both checks should appear in output');
+    assert.equal(summary.totalChecks, 2);
+    assert.equal(summary.errorChecks, 1);
+    assert.equal(summary.passedChecks, 1);
+    assert.equal(summary.totalIssues, 0);
+
+    const repoWide = checks.find((c) => c.checkId === 'aghast-repo-wide');
+    const multiTarget = checks.find((c) => c.checkId === 'aghast-mt-sqli');
+    assert.ok(repoWide, 'Should have repo-wide check');
+    assert.ok(multiTarget, 'Should have multi-target check');
+    assert.equal(repoWide!.status, 'PASS');
+    assert.equal(multiTarget!.status, 'ERROR');
+  });
+});
+
+// ─── Semgrep-only checks ─────────────────────────────────────────────────────
+
+describe('CLI mock mode: semgrep-only checks', () => {
+  afterEach(cleanupOutput);
+
+  it('PASS: empty SARIF → PASS, 0 issues', async () => {
+    const { exitCode } = await runCLI(
+      { AGHAST_MOCK_AI: 'true', AGHAST_MOCK_SEMGREP: emptyResultsSarif },
+      [fixtureRepo, '--config-dir', semgrepOnlyConfigDir],
+    );
+    assert.equal(exitCode, 0);
+
+    const results = await readResults();
+    const checks = results.checks as Array<Record<string, unknown>>;
+    const summary = results.summary as Record<string, number>;
+
+    assert.equal(checks.length, 1);
+    assert.equal(checks[0].status, 'PASS');
+    assert.equal(checks[0].checkId, 'aghast-semgrep-only');
+    assert.equal(checks[0].targetsAnalyzed, 0);
+    assert.equal(checks[0].issuesFound, 0);
+    assert.equal(summary.passedChecks, 1);
+    assert.equal(summary.totalIssues, 0);
+  });
+
+  it('FAIL: 3 SARIF findings → FAIL, issues mapped with correct fields', async () => {
+    const { exitCode } = await runCLI(
+      { AGHAST_MOCK_AI: 'true', AGHAST_MOCK_SEMGREP: cli3TargetsSarif },
+      [fixtureRepo, '--config-dir', semgrepOnlyConfigDir],
+    );
+    assert.equal(exitCode, 0);
+
+    const results = await readResults();
+    const checks = results.checks as Array<Record<string, unknown>>;
+    const issues = results.issues as Array<Record<string, unknown>>;
+    const summary = results.summary as Record<string, number>;
+
+    assert.equal(checks[0].status, 'FAIL');
+    assert.equal(checks[0].targetsAnalyzed, 3);
+    assert.equal(checks[0].issuesFound, 3);
+    assert.equal(issues.length, 3);
+    assert.equal(summary.failedChecks, 1);
+    assert.equal(summary.totalIssues, 3);
+
+    // Verify issue fields from SARIF + check config
+    for (const issue of issues) {
+      assert.equal(issue.checkId, 'aghast-semgrep-only');
+      assert.equal(issue.checkName, 'Semgrep-Only Check');
+      assert.equal(issue.file, 'src/example.ts');
+      assert.ok(issue.description, 'Should have description from SARIF message');
+      assert.ok(typeof issue.startLine === 'number');
+      assert.ok(typeof issue.endLine === 'number');
+    }
+  });
+
+  it('severity and confidence from check config appear on issues', async () => {
+    const { exitCode } = await runCLI(
+      { AGHAST_MOCK_AI: 'true', AGHAST_MOCK_SEMGREP: cli3TargetsSarif },
+      [fixtureRepo, '--config-dir', semgrepOnlyConfigDir],
+    );
+    assert.equal(exitCode, 0);
+
+    const results = await readResults();
+    const issues = results.issues as Array<Record<string, unknown>>;
+
+    for (const issue of issues) {
+      assert.equal(issue.severity, 'high', 'severity should come from check config');
+      assert.equal(issue.confidence, 'high', 'confidence should come from check config');
+    }
+  });
+
+  it('ERROR: bad mock SARIF path → ERROR status', async () => {
+    const { exitCode } = await runCLI(
+      { AGHAST_MOCK_AI: 'true', AGHAST_MOCK_SEMGREP: '/nonexistent/bad.sarif' },
+      [fixtureRepo, '--config-dir', semgrepOnlyConfigDir],
+    );
+    assert.equal(exitCode, 0);
+
+    const results = await readResults();
+    const checks = results.checks as Array<Record<string, unknown>>;
+    const summary = results.summary as Record<string, number>;
+
+    assert.equal(checks[0].status, 'ERROR');
+    assert.ok(checks[0].error, 'Should have error message');
+    assert.equal(summary.errorChecks, 1);
+  });
+
+  it('summary banner shows correct status for FAIL', async () => {
+    const { stdout, stderr } = await runCLI(
+      { AGHAST_MOCK_AI: 'true', AGHAST_MOCK_SEMGREP: cli3TargetsSarif },
+      [fixtureRepo, '--config-dir', semgrepOnlyConfigDir],
+    );
+    const combined = stdout + stderr;
+    assert.ok(combined.includes('AGHAST Scan Complete: FAIL'), 'Summary banner should show FAIL');
+  });
+
+  it('summary banner shows PASS for empty SARIF', async () => {
+    const { stdout, stderr } = await runCLI(
+      { AGHAST_MOCK_AI: 'true', AGHAST_MOCK_SEMGREP: emptyResultsSarif },
+      [fixtureRepo, '--config-dir', semgrepOnlyConfigDir],
+    );
+    const combined = stdout + stderr;
+    assert.ok(combined.includes('AGHAST Scan Complete: PASS'), 'Summary banner should show PASS');
+  });
+
+  it('mixed config: semgrep-only + AI check both processed', async () => {
+    const { exitCode } = await runCLI(
+      { AGHAST_MOCK_AI: 'true', AGHAST_MOCK_SEMGREP: cli3TargetsSarif },
+      [fixtureRepo, '--config-dir', mixedWithSemgrepOnlyConfigDir],
+    );
+    assert.equal(exitCode, 0);
+
+    const results = await readResults();
+    const checks = results.checks as Array<Record<string, unknown>>;
+    const summary = results.summary as Record<string, number>;
+
+    assert.equal(checks.length, 2);
+
+    // AI check (aghast-sql-injection) should PASS (default mock AI returns empty issues)
+    const aiCheck = checks.find((c) => c.checkId === 'aghast-sql-injection');
+    assert.ok(aiCheck, 'Should have AI check');
+    assert.equal(aiCheck!.status, 'PASS');
+
+    // semgrep-only check should FAIL with 3 issues
+    const sgoCheck = checks.find((c) => c.checkId === 'aghast-semgrep-only');
+    assert.ok(sgoCheck, 'Should have semgrep-only check');
+    assert.equal(sgoCheck!.status, 'FAIL');
+    assert.equal(sgoCheck!.targetsAnalyzed, 3);
+    assert.equal(sgoCheck!.issuesFound, 3);
+
+    assert.equal(summary.totalChecks, 2);
+    assert.equal(summary.passedChecks, 1);
+    assert.equal(summary.failedChecks, 1);
+    assert.equal(summary.totalIssues, 3);
+  });
+
+  it('semgrep-only scan does not log "Using model"', async () => {
+    const { stdout, stderr } = await runCLI(
+      { AGHAST_MOCK_AI: 'true', AGHAST_MOCK_SEMGREP: emptyResultsSarif },
+      [fixtureRepo, '--config-dir', semgrepOnlyConfigDir],
+    );
+    const combined = stdout + stderr;
+    assert.ok(!combined.includes('Using model'), 'Semgrep-only scan should not log "Using model"');
+  });
+
+  it('semgrep-only scan sets aiProvider.name to "none" in results', async () => {
+    await runCLI(
+      { AGHAST_MOCK_AI: 'true', AGHAST_MOCK_SEMGREP: emptyResultsSarif },
+      [fixtureRepo, '--config-dir', semgrepOnlyConfigDir],
+    );
+
+    const results = await readResults();
+    const aiProvider = results.aiProvider as Record<string, unknown>;
+    assert.equal(aiProvider.name, 'none', 'aiProvider.name should be "none" for semgrep-only scans');
+    assert.deepEqual(aiProvider.models, [], 'aiProvider.models should be empty for semgrep-only scans');
+  });
+
+  it('mixed scan (AI + semgrep-only) still logs "Using model"', async () => {
+    const { stdout, stderr } = await runCLI(
+      { AGHAST_MOCK_AI: 'true', AGHAST_MOCK_SEMGREP: cli3TargetsSarif },
+      [fixtureRepo, '--config-dir', mixedWithSemgrepOnlyConfigDir],
+    );
+    const combined = stdout + stderr;
+    assert.ok(combined.includes('Using model'), 'Mixed scan should log "Using model"');
+  });
+
+  it('SARIF output format includes semgrep-only findings', async () => {
+    const { exitCode } = await runCLISarif(
+      { AGHAST_MOCK_AI: 'true', AGHAST_MOCK_SEMGREP: cli3TargetsSarif },
+      [fixtureRepo, '--config-dir', semgrepOnlyConfigDir, '--output-format', 'sarif'],
+    );
+    assert.equal(exitCode, 0);
+
+    const raw = await readFile(sarifOutputFile, 'utf-8');
+    const sarif = JSON.parse(raw) as Record<string, unknown>;
+    const runs = sarif.runs as Array<Record<string, unknown>>;
+    const sarifResults = runs[0].results as Array<Record<string, unknown>>;
+
+    assert.equal(sarifResults.length, 3, 'SARIF should have 3 results from semgrep-only');
+    for (const r of sarifResults) {
+      assert.equal(r.ruleId, 'aghast-semgrep-only');
+    }
+  });
+
+  it('--fail-on-check-failure exits 1 on FAIL', async () => {
+    const { exitCode } = await runCLI(
+      { AGHAST_MOCK_AI: 'true', AGHAST_MOCK_SEMGREP: cli3TargetsSarif },
+      [fixtureRepo, '--config-dir', semgrepOnlyConfigDir, '--fail-on-check-failure'],
+    );
+    assert.equal(exitCode, 1);
+  });
+
+  it('codeSnippet is extracted for semgrep-only findings', async () => {
+    const { exitCode } = await runCLI(
+      { AGHAST_MOCK_AI: 'true', AGHAST_MOCK_SEMGREP: cli3TargetsSarif },
+      [fixtureRepo, '--config-dir', semgrepOnlyConfigDir],
+    );
+    assert.equal(exitCode, 0);
+
+    const results = await readResults();
+    const issues = results.issues as Array<Record<string, unknown>>;
+
+    // At least one issue should have codeSnippet (src/example.ts exists)
+    const issueWithSnippet = issues.find((i) => i.codeSnippet !== undefined);
+    assert.ok(issueWithSnippet, 'At least one issue should have codeSnippet');
+    assert.ok(
+      (issueWithSnippet!.codeSnippet as string).includes('SELECT'),
+      'Snippet should contain SQL from fixture file',
+    );
+  });
+});

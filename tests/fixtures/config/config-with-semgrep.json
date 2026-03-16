@@ -1,0 +1,27 @@
+{
+  "checks": [
+    {
+      "id": "aghast-semgrep-check",
+      "name": "Semgrep Multi-Target Check",
+      "repositories": ["org/team/service"],
+      "instructionsFile": "ai-checks/valid-check.md",
+      "checkTarget": {
+        "type": "semgrep",
+        "rules": "semgrep-rules/api-endpoints.yaml",
+        "maxTargets": 50,
+        "concurrency": 3
+      },
+      "enabled": true
+    },
+    {
+      "id": "aghast-repo-wide",
+      "name": "Repository Wide Check",
+      "repositories": [],
+      "instructionsFile": "ai-checks/valid-check-minimal.md",
+      "checkTarget": {
+        "type": "repository"
+      },
+      "enabled": true
+    }
+  ]
+}

@@ -1,0 +1,7 @@
+{
+  "id": "aghast-semgrep-only",
+  "name": "Semgrep-Only Check",
+  "severity": "high",
+  "confidence": "high",
+  "checkTarget": { "type": "semgrep-only", "rules": "unused-in-mock.yaml" }
+}

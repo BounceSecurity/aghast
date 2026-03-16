@@ -1,0 +1,14 @@
+{
+  "issues": [
+    {
+      "file": "src/example.ts",
+      "startLine": 3,
+      "endLine": 5,
+      "description": "SQL injection: user input interpolated directly into query string.",
+      "dataFlow": [
+        { "file": "src/example.ts", "lineNumber": 1, "label": "User input received from function parameter" },
+        { "file": "src/example.ts", "lineNumber": 3, "label": "Input concatenated into SQL query without sanitization" }
+      ]
+    }
+  ]
+}

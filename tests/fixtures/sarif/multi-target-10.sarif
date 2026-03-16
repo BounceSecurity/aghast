@@ -1,0 +1,77 @@
+{
+  "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+  "version": "2.1.0",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "semgrep",
+          "semanticVersion": "1.50.0",
+          "rules": []
+        }
+      },
+      "results": [
+        {
+          "ruleId": "sql-concat",
+          "level": "warning",
+          "message": { "text": "Target 1" },
+          "locations": [{ "physicalLocation": { "artifactLocation": { "uri": "src/t1.ts" }, "region": { "startLine": 1, "endLine": 2, "snippet": { "text": "target 1" } } } }]
+        },
+        {
+          "ruleId": "sql-concat",
+          "level": "warning",
+          "message": { "text": "Target 2" },
+          "locations": [{ "physicalLocation": { "artifactLocation": { "uri": "src/t2.ts" }, "region": { "startLine": 3, "endLine": 4, "snippet": { "text": "target 2" } } } }]
+        },
+        {
+          "ruleId": "sql-concat",
+          "level": "warning",
+          "message": { "text": "Target 3" },
+          "locations": [{ "physicalLocation": { "artifactLocation": { "uri": "src/t3.ts" }, "region": { "startLine": 5, "endLine": 6, "snippet": { "text": "target 3" } } } }]
+        },
+        {
+          "ruleId": "sql-concat",
+          "level": "warning",
+          "message": { "text": "Target 4" },
+          "locations": [{ "physicalLocation": { "artifactLocation": { "uri": "src/t4.ts" }, "region": { "startLine": 7, "endLine": 8, "snippet": { "text": "target 4" } } } }]
+        },
+        {
+          "ruleId": "sql-concat",
+          "level": "warning",
+          "message": { "text": "Target 5" },
+          "locations": [{ "physicalLocation": { "artifactLocation": { "uri": "src/t5.ts" }, "region": { "startLine": 9, "endLine": 10, "snippet": { "text": "target 5" } } } }]
+        },
+        {
+          "ruleId": "sql-concat",
+          "level": "warning",
+          "message": { "text": "Target 6" },
+          "locations": [{ "physicalLocation": { "artifactLocation": { "uri": "src/t6.ts" }, "region": { "startLine": 11, "endLine": 12, "snippet": { "text": "target 6" } } } }]
+        },
+        {
+          "ruleId": "sql-concat",
+          "level": "warning",
+          "message": { "text": "Target 7" },
+          "locations": [{ "physicalLocation": { "artifactLocation": { "uri": "src/t7.ts" }, "region": { "startLine": 13, "endLine": 14, "snippet": { "text": "target 7" } } } }]
+        },
+        {
+          "ruleId": "sql-concat",
+          "level": "warning",
+          "message": { "text": "Target 8" },
+          "locations": [{ "physicalLocation": { "artifactLocation": { "uri": "src/t8.ts" }, "region": { "startLine": 15, "endLine": 16, "snippet": { "text": "target 8" } } } }]
+        },
+        {
+          "ruleId": "sql-concat",
+          "level": "warning",
+          "message": { "text": "Target 9" },
+          "locations": [{ "physicalLocation": { "artifactLocation": { "uri": "src/t9.ts" }, "region": { "startLine": 17, "endLine": 18, "snippet": { "text": "target 9" } } } }]
+        },
+        {
+          "ruleId": "sql-concat",
+          "level": "warning",
+          "message": { "text": "Target 10" },
+          "locations": [{ "physicalLocation": { "artifactLocation": { "uri": "src/t10.ts" }, "region": { "startLine": 19, "endLine": 20, "snippet": { "text": "target 10" } } } }]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,38 @@
+{
+  "scanId": "scan-2026-01-18-120000-ghi789",
+  "timestamp": "2026-01-18T12:00:00.000Z",
+  "version": "1.0.0",
+  "repository": {
+    "path": "/path/to/error-repo",
+    "remoteUrl": "https://github.com/org/error-repo.git",
+    "branch": "main",
+    "isGitRepository": true
+  },
+  "issues": [],
+  "checks": [
+    {
+      "checkId": "aghast-api-authz",
+      "checkName": "API Authorization Check",
+      "status": "ERROR",
+      "issuesFound": 0,
+      "executionTime": 500,
+      "error": "AI provider returned malformed response",
+      "rawAiResponse": "This is not valid JSON output"
+    }
+  ],
+  "summary": {
+    "totalChecks": 1,
+    "passedChecks": 0,
+    "failedChecks": 0,
+    "flaggedChecks": 0,
+    "errorChecks": 1,
+    "totalIssues": 0
+  },
+  "aiProvider": {
+    "name": "claude-code",
+    "models": ["claude-sonnet-4-5-20250929"]
+  },
+  "executionTime": 500,
+  "startTime": "2026-01-18T12:00:00.000Z",
+  "endTime": "2026-01-18T12:00:00.500Z"
+}

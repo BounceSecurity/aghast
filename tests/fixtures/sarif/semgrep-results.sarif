@@ -1,0 +1,94 @@
+{
+  "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+  "version": "2.1.0",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "semgrep",
+          "semanticVersion": "1.50.0",
+          "rules": [
+            {
+              "id": "api-endpoints",
+              "name": "api-endpoints",
+              "shortDescription": {
+                "text": "API endpoint pattern"
+              }
+            }
+          ]
+        }
+      },
+      "results": [
+        {
+          "ruleId": "api-endpoints",
+          "level": "warning",
+          "message": {
+            "text": "Found API endpoint: GET /users"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/routes/users.ts"
+                },
+                "region": {
+                  "startLine": 24,
+                  "endLine": 45,
+                  "snippet": {
+                    "text": "router.get('/users', async (req, res) => {"
+                  }
+                }
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "api-endpoints",
+          "level": "warning",
+          "message": {
+            "text": "Found API endpoint: POST /users"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/routes/users.ts"
+                },
+                "region": {
+                  "startLine": 47,
+                  "endLine": 92,
+                  "snippet": {
+                    "text": "router.post('/users', async (req, res) => {"
+                  }
+                }
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "api-endpoints",
+          "level": "warning",
+          "message": {
+            "text": "Found API endpoint: GET /orders"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/routes/orders.ts"
+                },
+                "region": {
+                  "startLine": 10,
+                  "endLine": 35,
+                  "snippet": {
+                    "text": "router.get('/orders', async (req, res) => {"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

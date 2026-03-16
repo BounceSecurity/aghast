@@ -1,0 +1,10 @@
+{
+  "issues": [
+    {
+      "file": "src/auth/login.ts",
+      "startLine": 12,
+      "endLine": 18,
+      "description": "## Hardcoded Credentials\n\nThe login handler contains hardcoded credentials used for testing that were not removed."
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "checks": [
+    {
+      "id": "aghast-sql-injection",
+      "repositories": [],
+      "enabled": true
+    },
+    {
+      "id": "aghast-semgrep-only",
+      "repositories": [],
+      "enabled": true
+    }
+  ]
+}

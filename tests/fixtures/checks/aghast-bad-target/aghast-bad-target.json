@@ -1,0 +1,8 @@
+{
+  "id": "aghast-bad-target",
+  "name": "Bad Target",
+  "instructionsFile": "aghast-bad-target.md",
+  "checkTarget": {
+    "type": "invalid-type"
+  }
+}

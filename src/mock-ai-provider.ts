@@ -1,0 +1,39 @@
+/**
+ * Lightweight mock AI provider for CLI `AGHAST_MOCK_AI` mode.
+ *
+ * Returns a fixed raw response without calling any AI API.
+ * This is shipped with the package (unlike the full test mock in tests/mocks/).
+ */
+
+import type { AIProvider, AIResponse, ProviderConfig } from './types.js';
+
+export class MockAIProvider implements AIProvider {
+  private rawResponse: string;
+
+  constructor(options: { rawResponse: string }) {
+    this.rawResponse = options.rawResponse;
+  }
+
+  async initialize(_config: ProviderConfig): Promise<void> {
+    // No-op
+  }
+
+  async executeCheck(
+    _instructions: string,
+    _repositoryPath: string,
+    _logPrefix?: string,
+  ): Promise<AIResponse> {
+    return {
+      raw: this.rawResponse,
+      parsed: undefined,
+    };
+  }
+
+  async validateConfig(): Promise<boolean> {
+    return true;
+  }
+
+  enableDebug(): void {
+    // No-op
+  }
+}

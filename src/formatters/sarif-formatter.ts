@@ -1,0 +1,172 @@
+/**
+ * SARIF 2.1.0 output formatter.
+ * Maps ScanResults to the SARIF schema for integration with
+ * code scanning UIs (e.g. GitHub Code Scanning) and SARIF viewers.
+ */
+
+import type { ScanResults, SecurityIssue, DataFlowStep } from '../types.js';
+import type { OutputFormatter } from './types.js';
+
+/** Maps aghast severity to SARIF result level. */
+export function mapSeverityToLevel(severity: string | undefined): 'error' | 'warning' | 'note' {
+  switch (severity) {
+    case 'critical':
+    case 'high':
+      return 'error';
+    case 'medium':
+      return 'warning';
+    case 'low':
+    case 'informational':
+    default:
+      return 'note';
+  }
+}
+
+interface SarifRule {
+  id: string;
+  name: string;
+  shortDescription: { text: string };
+}
+
+interface SarifRegion {
+  startLine: number;
+  endLine: number;
+  snippet?: { text: string };
+}
+
+interface SarifThreadFlowLocation {
+  location: {
+    physicalLocation: {
+      artifactLocation: { uri: string };
+      region: { startLine: number };
+    };
+    message: { text: string };
+  };
+}
+
+interface SarifCodeFlow {
+  threadFlows: Array<{
+    locations: SarifThreadFlowLocation[];
+  }>;
+}
+
+interface SarifResult {
+  ruleId: string;
+  message: { text: string };
+  level: 'error' | 'warning' | 'note';
+  locations: Array<{
+    physicalLocation: {
+      artifactLocation: { uri: string };
+      region: SarifRegion;
+    };
+  }>;
+  codeFlows?: SarifCodeFlow[];
+}
+
+interface SarifLog {
+  $schema: string;
+  version: string;
+  runs: Array<{
+    tool: {
+      driver: {
+        name: string;
+        semanticVersion: string;
+        rules: SarifRule[];
+      };
+    };
+    results: SarifResult[];
+  }>;
+}
+
+export class SarifFormatter implements OutputFormatter {
+  readonly id = 'sarif';
+  readonly fileExtension = '.sarif';
+
+  format(results: ScanResults): string {
+    const rules = this.buildRules(results);
+    const sarifResults = this.buildResults(results.issues);
+
+    const sarif: SarifLog = {
+      $schema: 'https://docs.oasis-open.org/sarif/sarif/v2.1.0/errata01/os/schemas/sarif-schema-2.1.0.json',
+      version: '2.1.0',
+      runs: [
+        {
+          tool: {
+            driver: {
+              name: 'aghast',
+              semanticVersion: results.version,
+              rules,
+            },
+          },
+          results: sarifResults,
+        },
+      ],
+    };
+
+    return JSON.stringify(sarif, null, 2);
+  }
+
+  private buildRules(results: ScanResults): SarifRule[] {
+    const seen = new Map<string, SarifRule>();
+    for (const check of results.checks) {
+      if (!seen.has(check.checkId)) {
+        seen.set(check.checkId, {
+          id: check.checkId,
+          name: check.checkName,
+          shortDescription: { text: check.checkName },
+        });
+      }
+    }
+    return Array.from(seen.values());
+  }
+
+  private buildResults(issues: SecurityIssue[]): SarifResult[] {
+    return issues.map((issue) => {
+      const region: SarifRegion = {
+        startLine: issue.startLine,
+        endLine: issue.endLine,
+      };
+      if (issue.codeSnippet) {
+        region.snippet = { text: issue.codeSnippet };
+      }
+
+      const result: SarifResult = {
+        ruleId: issue.checkId,
+        message: { text: issue.description },
+        level: mapSeverityToLevel(issue.severity),
+        locations: [
+          {
+            physicalLocation: {
+              artifactLocation: { uri: issue.file },
+              region,
+            },
+          },
+        ],
+      };
+
+      if (issue.dataFlow && issue.dataFlow.length > 0) {
+        result.codeFlows = [this.buildCodeFlow(issue.dataFlow)];
+      }
+
+      return result;
+    });
+  }
+
+  private buildCodeFlow(steps: DataFlowStep[]): SarifCodeFlow {
+    return {
+      threadFlows: [
+        {
+          locations: steps.map((step) => ({
+            location: {
+              physicalLocation: {
+                artifactLocation: { uri: step.file },
+                region: { startLine: step.lineNumber },
+              },
+              message: { text: step.label },
+            },
+          })),
+        },
+      ],
+    };
+  }
+}

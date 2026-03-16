@@ -1,0 +1,9 @@
+{
+  "findings": [
+    {
+      "location": "src/api/users.ts",
+      "line": 45,
+      "message": "Missing authorization"
+    }
+  ]
+}

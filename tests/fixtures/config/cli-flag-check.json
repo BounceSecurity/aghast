@@ -1,0 +1,11 @@
+{
+  "checks": [
+    {
+      "id": "aghast-flag-check",
+      "name": "Flag Check",
+      "repositories": [],
+      "instructionsFile": "../ai-checks/valid-check.md",
+      "enabled": true
+    }
+  ]
+}

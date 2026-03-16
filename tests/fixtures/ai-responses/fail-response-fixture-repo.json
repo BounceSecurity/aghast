@@ -1,0 +1,10 @@
+{
+  "issues": [
+    {
+      "file": "src/example.ts",
+      "startLine": 3,
+      "endLine": 5,
+      "description": "SQL injection: user input interpolated directly into query string."
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "checks": [
+    {
+      "id": "aghast-sql-injection",
+      "name": "SQL Injection Prevention",
+      "repositories": [],
+      "instructionsFile": "../ai-checks/valid-check.md",
+      "enabled": true
+    }
+  ]
+}

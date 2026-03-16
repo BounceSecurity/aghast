@@ -1,0 +1,7 @@
+{
+  "id": "aghast-path-filtered",
+  "name": "Path Filtered Check",
+  "instructionsFile": "aghast-path-filtered.md",
+  "applicablePaths": ["src/**/*.ts", "src/**/*.js"],
+  "excludedPaths": ["src/**/*.test.ts", "src/**/*.spec.ts"]
+}

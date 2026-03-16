@@ -1,0 +1,507 @@
+/**
+ * CLI utility for scaffolding new security checks.
+ * Creates a check folder with check.json (Layer 2), instructions.md,
+ * and optionally rule.yaml + tests/ for Semgrep checks.
+ * Appends a registry entry to checks-config.json (Layer 1).
+ *
+ * Usage:
+ *   pnpm exec tsx src/new-check.ts                    # Interactive mode
+ *   pnpm exec tsx src/new-check.ts --id aghast-xss    # Mixed mode (prompts for missing)
+ *   pnpm exec tsx src/new-check.ts --id ... --name ... # Full flag mode (no prompts)
+ */
+
+import { readFile, writeFile, access, mkdir } from 'node:fs/promises';
+import { resolve } from 'node:path';
+import { createInterface } from 'node:readline/promises';
+import { stdin, stdout } from 'node:process';
+import { createRequire } from 'node:module';
+import { ERROR_CODES, formatError, formatFatalError } from './error-codes.js';
+
+const ID_PREFIX = 'aghast-';
+
+// --- Supported Languages (easy to extend) ---
+
+interface LanguageInfo {
+  semgrepId: string;
+  extension: string;
+  commentPrefix: string;
+}
+
+const SUPPORTED_LANGUAGES: Record<string, LanguageInfo> = {
+  python: { semgrepId: 'python', extension: '.py', commentPrefix: '#' },
+  py: { semgrepId: 'python', extension: '.py', commentPrefix: '#' },
+  javascript: { semgrepId: 'javascript', extension: '.js', commentPrefix: '//' },
+  js: { semgrepId: 'javascript', extension: '.js', commentPrefix: '//' },
+  typescript: { semgrepId: 'typescript', extension: '.ts', commentPrefix: '//' },
+  ts: { semgrepId: 'typescript', extension: '.ts', commentPrefix: '//' },
+};
+
+// Canonical names for display in prompts
+const LANGUAGE_CHOICES = ['python', 'javascript', 'typescript'];
+
+// --- Arg Parsing ---
+
+interface ParsedFlags {
+  id?: string;
+  name?: string;
+  severity?: string;
+  confidence?: string;
+  repositories?: string;
+  checkOverview?: string;
+  checkItems?: string;
+  passCondition?: string;
+  failCondition?: string;
+  flagCondition?: string;
+  checkType?: string;
+  semgrepRules?: string;
+  maxTargets?: string;
+  language?: string;
+  configDir?: string;
+}
+
+const CLI_FLAG_MAP: Record<string, keyof ParsedFlags> = {
+  '--id': 'id',
+  '--name': 'name',
+  '--severity': 'severity',
+  '--confidence': 'confidence',
+  '--repositories': 'repositories',
+  '--check-overview': 'checkOverview',
+  '--check-items': 'checkItems',
+  '--pass-condition': 'passCondition',
+  '--fail-condition': 'failCondition',
+  '--flag-condition': 'flagCondition',
+  '--check-type': 'checkType',
+  '--semgrep-rules': 'semgrepRules',
+  '--max-targets': 'maxTargets',
+  '--language': 'language',
+  '--config-dir': 'configDir',
+};
+
+function parseFlags(args: string[]): ParsedFlags {
+  const flags: ParsedFlags = {};
+  for (let i = 0; i < args.length; i++) {
+    const key = CLI_FLAG_MAP[args[i]];
+    if (key) {
+      const value = args[i + 1];
+      if (value === undefined || value.startsWith('--')) {
+        console.error(formatError(ERROR_CODES.E1001, `${args[i]} requires a value`));
+        process.exit(1);
+      }
+      flags[key] = value;
+      i++; // skip value
+    }
+  }
+  return flags;
+}
+
+// --- Interactive Prompts ---
+
+async function promptForMissing(flags: ParsedFlags): Promise<Required<Omit<ParsedFlags, 'configDir'>>> {
+  const needsPrompt =
+    !flags.id || !flags.name ||
+    !flags.checkOverview || !flags.checkItems ||
+    !flags.passCondition || !flags.failCondition ||
+    !flags.checkType;
+
+  let rl: ReturnType<typeof createInterface> | undefined;
+  if (needsPrompt) {
+    rl = createInterface({ input: stdin, output: stdout });
+  }
+
+  async function ask(label: string, existing?: string): Promise<string> {
+    if (existing !== undefined) return existing;
+    if (!rl) throw new Error('Unexpected: readline not initialized');
+    const maxAttempts = 3;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      const answer = await rl.question(`${label}: `);
+      if (answer.trim()) return answer.trim();
+      const remaining = maxAttempts - attempt;
+      if (remaining > 0) {
+        console.error(formatError(ERROR_CODES.E1003, `${label} is required (${remaining} ${remaining === 1 ? 'attempt' : 'attempts'} remaining)`));
+      }
+    }
+    console.error(formatError(ERROR_CODES.E1003, `${label} is required — no valid input after ${maxAttempts} attempts`));
+    rl.close();
+    process.exit(1);
+  }
+
+  async function askOptional(label: string, existing?: string): Promise<string> {
+    if (existing !== undefined) return existing;
+    if (!rl) return '';
+    const answer = await rl.question(`${label} (optional, press Enter to skip): `);
+    return answer.trim();
+  }
+
+  async function askWithDefault(label: string, defaultValue: string, existing?: string): Promise<string> {
+    if (existing !== undefined) return existing;
+    if (!rl) return defaultValue;
+    const answer = await rl.question(`${label} [${defaultValue}]: `);
+    return answer.trim() || defaultValue;
+  }
+
+  const result = {
+    id: await ask('Check ID (e.g. aghast-xss)', flags.id),
+    name: await ask('Check name (e.g. XSS Prevention)', flags.name),
+    severity: await askOptional('Severity (critical/high/medium/low/informational)', flags.severity),
+    confidence: await askOptional('Confidence (high/medium/low)', flags.confidence),
+    repositories: flags.repositories !== undefined ? flags.repositories : await askOptional('Repositories (comma-separated URLs, or empty for all)', undefined),
+    checkOverview: await ask('Check overview / description', flags.checkOverview),
+    checkItems: await ask('Check items (comma-separated)', flags.checkItems),
+    passCondition: await ask('PASS condition', flags.passCondition),
+    failCondition: await ask('FAIL condition', flags.failCondition),
+    flagCondition: await askOptional('FLAG condition (requires human investigation)', flags.flagCondition),
+    checkType: await askWithDefault('Check type (repository/semgrep/semgrep-only)', 'repository', flags.checkType),
+    semgrepRules: '',
+    maxTargets: '',
+    language: '',
+  };
+
+  if (result.checkType === 'semgrep' || result.checkType === 'semgrep-only') {
+    result.semgrepRules = flags.semgrepRules !== undefined
+      ? flags.semgrepRules
+      : await askOptional('Semgrep rule file paths (comma-separated, or press Enter to generate template)', undefined);
+    result.maxTargets = await askOptional('Max targets', flags.maxTargets);
+    if (!result.semgrepRules) {
+      // Language is required when generating a rule template + test file
+      result.language = await ask(`Language (${LANGUAGE_CHOICES.join('/')})`, flags.language);
+    } else {
+      result.language = flags.language ?? '';
+    }
+  }
+
+  if (rl) rl.close();
+  return result;
+}
+
+// --- ID Prefix ---
+
+function ensurePrefix(id: string): string {
+  if (id.startsWith(ID_PREFIX)) return id;
+  return ID_PREFIX + id;
+}
+
+// --- Validation ---
+
+interface RegistryFile {
+  checks: Array<{ id: string; [key: string]: unknown }>;
+}
+
+async function loadExistingRegistry(registryPath: string): Promise<RegistryFile> {
+  const raw = await readFile(registryPath, 'utf-8');
+  return JSON.parse(raw) as RegistryFile;
+}
+
+function validateInputs(
+  inputs: { id: string; severity: string; confidence: string; checkType: string; maxTargets: string; language: string },
+  registry: RegistryFile,
+): string[] {
+  const errors: string[] = [];
+
+  if (!inputs.id) {
+    errors.push('Check ID is required');
+  }
+
+  if (registry.checks.some((c) => c.id === inputs.id)) {
+    errors.push(`Check ID "${inputs.id}" already exists in config`);
+  }
+
+  const validSeverities = ['critical', 'high', 'medium', 'low', 'informational'];
+  if (inputs.severity && !validSeverities.includes(inputs.severity)) {
+    errors.push(`Invalid severity "${inputs.severity}". Must be one of: ${validSeverities.join(', ')}`);
+  }
+
+  const validConfidences = ['high', 'medium', 'low'];
+  if (inputs.confidence && !validConfidences.includes(inputs.confidence)) {
+    errors.push(`Invalid confidence "${inputs.confidence}". Must be one of: ${validConfidences.join(', ')}`);
+  }
+
+  const validCheckTypes = ['repository', 'semgrep', 'semgrep-only', ''];
+  if (!validCheckTypes.includes(inputs.checkType)) {
+    errors.push(`Invalid check type "${inputs.checkType}". Must be one of: repository, semgrep, semgrep-only`);
+  }
+
+  if (inputs.maxTargets) {
+    const parsed = parseInt(inputs.maxTargets, 10);
+    if (isNaN(parsed) || parsed <= 0) {
+      errors.push(`Invalid maxTargets "${inputs.maxTargets}". Must be a positive integer`);
+    }
+  }
+
+  if ((inputs.checkType === 'semgrep' || inputs.checkType === 'semgrep-only') && inputs.language && !SUPPORTED_LANGUAGES[inputs.language]) {
+    errors.push(`Invalid language "${inputs.language}". Must be one of: ${Object.keys(SUPPORTED_LANGUAGES).join(', ')}`);
+  }
+
+  return errors;
+}
+
+async function checkFileExists(path: string): Promise<boolean> {
+  try {
+    await access(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// --- Semgrep Rule Template ---
+
+function generateSemgrepRule(checkId: string, language: string): string {
+  const langInfo = SUPPORTED_LANGUAGES[language];
+  const semgrepLang = langInfo ? langInfo.semgrepId : 'javascript';
+  return `rules:
+  - id: ${checkId}
+    pattern: |
+      # TODO: Replace with your Semgrep pattern
+      ...
+    message: >
+      TODO: Describe the issue this rule detects.
+    languages: [${semgrepLang}]
+    severity: WARNING
+`;
+}
+
+function generateSemgrepTestFile(checkId: string, language: string): string {
+  const langInfo = SUPPORTED_LANGUAGES[language];
+  const comment = langInfo ? langInfo.commentPrefix : '#';
+  return `${comment} ruleid: ${checkId}
+${comment} TODO: Add code that SHOULD be matched by the rule
+
+${comment} ok: ${checkId}
+${comment} TODO: Add code that should NOT be matched by the rule
+`;
+}
+
+// --- File Generation ---
+
+function generateMarkdown(inputs: {
+  name: string;
+  checkOverview: string;
+  checkItems: string;
+  passCondition: string;
+  failCondition: string;
+  flagCondition: string;
+}): string {
+  const items = inputs.checkItems
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
+
+  const itemLines = items.map((item, i) => `${i + 1}. ${item}`).join('\n');
+
+  let resultLines = `- **PASS**: ${inputs.passCondition}\n- **FAIL**: ${inputs.failCondition}`;
+  if (inputs.flagCondition) {
+    resultLines += `\n- **FLAG**: ${inputs.flagCondition}`;
+  }
+
+  return `### ${inputs.name}
+
+#### Overview
+${inputs.checkOverview}
+
+#### What to Check
+${itemLines}
+
+#### Result
+${resultLines}
+`;
+}
+
+function generateCheckDefinition(inputs: {
+  id: string;
+  name: string;
+  severity: string;
+  confidence: string;
+  checkType: string;
+  semgrepRules: string;
+  maxTargets: string;
+}): Record<string, unknown> {
+  const def: Record<string, unknown> = {
+    id: inputs.id,
+    name: inputs.name,
+  };
+
+  // semgrep-only checks don't have an instructionsFile
+  if (inputs.checkType !== 'semgrep-only') {
+    def.instructionsFile = `${inputs.id}.md`;
+  }
+
+  if (inputs.severity) {
+    def.severity = inputs.severity;
+  }
+  if (inputs.confidence) {
+    def.confidence = inputs.confidence;
+  }
+
+  if (inputs.checkType === 'semgrep' || inputs.checkType === 'semgrep-only') {
+    const checkTarget: Record<string, unknown> = { type: inputs.checkType };
+    if (inputs.semgrepRules) {
+      const rules = inputs.semgrepRules.split(',').map((r) => r.trim()).filter(Boolean);
+      checkTarget.rules = rules.length === 1 ? rules[0] : rules;
+    } else {
+      checkTarget.rules = `${inputs.id}.yaml`;
+    }
+    if (inputs.maxTargets) {
+      checkTarget.maxTargets = parseInt(inputs.maxTargets, 10);
+    }
+    def.checkTarget = checkTarget;
+  }
+
+  return def;
+}
+
+function generateRegistryEntry(inputs: {
+  id: string;
+  repositories: string;
+}): Record<string, unknown> {
+  return {
+    id: inputs.id,
+    repositories: inputs.repositories
+      ? inputs.repositories.split(',').map((r) => r.trim()).filter(Boolean)
+      : [],
+    enabled: true,
+  };
+}
+
+// --- Main ---
+
+const NEW_CHECK_HELP = `Usage: aghast new-check --config-dir <path> [options]
+
+Scaffold a new security check. Runs interactively by default, prompting for any
+values not provided via flags. If the config directory does not exist, it will be
+created with an empty checks-config.json.
+
+Options:
+  --config-dir <path>        Config directory containing checks-config.json and
+                             checks/ folder. Created if it does not exist.
+                             Required unless AGHAST_CONFIG_DIR is set.
+  --id <id>                  Check ID (will be prefixed with "aghast-" if needed)
+  --name <name>              Human-readable check name (e.g. "XSS Prevention")
+  --severity <level>         Severity: critical, high, medium, low, informational
+  --confidence <level>       Confidence: high, medium, low
+  --repositories <urls>      Comma-separated repository URLs (empty = all repos)
+  --check-overview <text>    Description of what this check does
+  --check-items <items>      Comma-separated list of things to check
+  --pass-condition <text>    Condition for a PASS result
+  --fail-condition <text>    Condition for a FAIL result
+  --flag-condition <text>    Condition for a FLAG result (optional)
+  --check-type <type>        Check type: repository (default), semgrep, semgrep-only
+  --semgrep-rules <paths>    Comma-separated Semgrep rule file paths
+  --max-targets <n>          Maximum number of Semgrep targets to analyze
+  --language <lang>          Language for Semgrep template: python, javascript, typescript
+  -h, --help                 Show this help message
+
+Environment variables:
+  AGHAST_CONFIG_DIR           Default config directory (CLI --config-dir takes precedence)
+
+Check types:
+  repository     AI analyzes the whole repository (no Semgrep)
+  semgrep        Semgrep finds targets, AI analyzes each one
+  semgrep-only   Semgrep findings mapped directly to issues (no AI)
+
+Examples:
+  aghast new-check --config-dir ./my-checks
+  aghast new-check --config-dir ./my-checks --id xss --name "XSS Prevention"
+  aghast new-check --config-dir ./my-checks --check-type semgrep --language typescript`;
+
+export async function runNewCheck(args: string[]): Promise<void> {
+  if (args.includes('--help') || args.includes('-h')) {
+    console.log(NEW_CHECK_HELP);
+    process.exit(0);
+  }
+
+  const flags = parseFlags(args);
+
+  // --config-dir is required (CLI flag > AGHAST_CONFIG_DIR env var)
+  const rawConfigDir = flags.configDir || process.env.AGHAST_CONFIG_DIR;
+  if (!rawConfigDir) {
+    console.error(formatError(ERROR_CODES.E2001, '--config-dir is required (or set AGHAST_CONFIG_DIR).'));
+    process.exit(1);
+  }
+
+  const configDir = resolve(rawConfigDir);
+  const checksDir = resolve(configDir, 'checks');
+  const registryPath = resolve(configDir, 'checks-config.json');
+
+  const inputs = await promptForMissing(flags);
+
+  // Ensure aghast- prefix
+  inputs.id = ensurePrefix(inputs.id);
+
+  // Bootstrap: create checks-config.json if it doesn't exist
+  let registry: RegistryFile;
+  if (await checkFileExists(registryPath)) {
+    registry = await loadExistingRegistry(registryPath);
+  } else {
+    await mkdir(configDir, { recursive: true });
+    const emptyRegistry: RegistryFile = { checks: [] };
+    await writeFile(registryPath, JSON.stringify(emptyRegistry, null, 2) + '\n', 'utf-8');
+    console.log(`Created new config: ${registryPath}`);
+    registry = emptyRegistry;
+  }
+
+  const validationErrors = validateInputs(inputs, registry);
+  if (validationErrors.length > 0) {
+    for (const err of validationErrors) {
+      console.error(formatError(ERROR_CODES.E2004, err));
+    }
+    process.exit(1);
+  }
+
+  // Create check folder
+  const checkFolder = resolve(checksDir, inputs.id);
+  if (await checkFileExists(checkFolder)) {
+    console.error(formatError(ERROR_CODES.E2004, `Check folder already exists: ${checkFolder}`));
+    process.exit(1);
+  }
+  await mkdir(checkFolder, { recursive: true });
+
+  // Generate and write check.json (Layer 2)
+  const checkDef = generateCheckDefinition(inputs);
+  await writeFile(resolve(checkFolder, `${inputs.id}.json`), JSON.stringify(checkDef, null, 2) + '\n', 'utf-8');
+  console.log(`Created: ${checkFolder}/${inputs.id}.json`);
+
+  // Generate and write instructions.md (skipped for semgrep-only)
+  if (inputs.checkType !== 'semgrep-only') {
+    const markdown = generateMarkdown(inputs);
+    await writeFile(resolve(checkFolder, `${inputs.id}.md`), markdown, 'utf-8');
+    console.log(`Created: ${checkFolder}/${inputs.id}.md`);
+  }
+
+  // Generate Semgrep rule template and test file if needed
+  if ((inputs.checkType === 'semgrep' || inputs.checkType === 'semgrep-only') && !inputs.semgrepRules) {
+    const rulePath = resolve(checkFolder, `${inputs.id}.yaml`);
+    await writeFile(rulePath, generateSemgrepRule(inputs.id, inputs.language), 'utf-8');
+    console.log(`Created: ${checkFolder}/${inputs.id}.yaml (template — edit before running)`);
+
+    // Create corresponding test file
+    const langInfo = SUPPORTED_LANGUAGES[inputs.language];
+    if (langInfo) {
+      const testsDir = resolve(checkFolder, 'tests');
+      await mkdir(testsDir, { recursive: true });
+      const testFileName = `${inputs.id}${langInfo.extension}`;
+      const testPath = resolve(testsDir, testFileName);
+      await writeFile(testPath, generateSemgrepTestFile(inputs.id, inputs.language), 'utf-8');
+      console.log(`Created: ${checkFolder}/tests/${testFileName} (test scaffold — edit before running)`);
+    }
+  }
+
+  // Update registry (Layer 1)
+  const registryEntry = generateRegistryEntry(inputs);
+  registry.checks.push(registryEntry as RegistryFile['checks'][number]);
+  await writeFile(registryPath, JSON.stringify(registry, null, 2) + '\n', 'utf-8');
+  console.log(`Updated: ${registryPath}`);
+
+  console.log(`\nNew check "${inputs.id}" created successfully.`);
+}
+
+// Auto-run when executed directly (pnpm new-check / tsx src/new-check.ts), but not when imported by cli.ts.
+if (!process.env._AGHAST_CLI) {
+  await import('dotenv/config');
+  runNewCheck(process.argv.slice(2)).catch((err) => {
+    const require = createRequire(import.meta.url);
+    const pkg = require('../package.json') as { version: string };
+    console.error('');
+    console.error(formatFatalError(err instanceof Error ? err.message : String(err), pkg.version));
+    process.exit(1);
+  });
+}

@@ -1,0 +1,18 @@
+{
+  "checks": [
+    {
+      "id": "aghast-specific-repo",
+      "name": "Specific Repo Check",
+      "repositories": ["nonexistent-org/nonexistent-repo"],
+      "instructionsFile": "../ai-checks/valid-check.md",
+      "enabled": true
+    },
+    {
+      "id": "aghast-all-repos",
+      "name": "All Repos Check",
+      "repositories": [],
+      "instructionsFile": "../ai-checks/valid-check-minimal.md",
+      "enabled": true
+    }
+  ]
+}

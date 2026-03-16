@@ -1,0 +1,116 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g. 1.2.0)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  actions: read
+  id-token: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Validate version input
+        run: |
+          INPUT_VERSION="${{ inputs.version }}"
+
+          # Must match x.y.z format
+          if ! echo "$INPUT_VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::Invalid version format: '$INPUT_VERSION'. Must be x.y.z (e.g. 1.2.0)"
+            exit 1
+          fi
+
+          # Read current version from package.json
+          CURRENT_VERSION=$(node -p "require('./package.json').version")
+
+          # Must differ from current
+          if [ "$INPUT_VERSION" = "$CURRENT_VERSION" ]; then
+            echo "::error::Version $INPUT_VERSION is the same as the current version"
+            exit 1
+          fi
+
+          # Must be strictly greater (semver comparison using node)
+          IS_GREATER=$(node -e "
+            const [aMaj, aMin, aPat] = '$INPUT_VERSION'.split('.').map(Number);
+            const [bMaj, bMin, bPat] = '$CURRENT_VERSION'.split('.').map(Number);
+            const gt = aMaj > bMaj || (aMaj === bMaj && aMin > bMin) || (aMaj === bMaj && aMin === bMin && aPat > bPat);
+            console.log(gt ? 'yes' : 'no');
+          ")
+          if [ "$IS_GREATER" != "yes" ]; then
+            echo "::error::Version $INPUT_VERSION is not greater than current version $CURRENT_VERSION"
+            exit 1
+          fi
+
+          echo "Releasing v$INPUT_VERSION (current: v$CURRENT_VERSION)"
+
+      - name: Verify CI passed on current commit
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          SHA=$(git rev-parse HEAD)
+          echo "Checking CI status for $SHA"
+          RESULT=$(gh run list --commit "$SHA" --workflow CI --json conclusion --jq '.[0].conclusion // empty')
+          if [ -z "$RESULT" ]; then
+            echo "::error::No CI run found for commit $SHA. Ensure CI has run on main before releasing."
+            exit 1
+          fi
+          if [ "$RESULT" != "success" ]; then
+            echo "::error::CI did not pass on commit $SHA (conclusion: $RESULT). Fix CI before releasing."
+            exit 1
+          fi
+          echo "CI passed on $SHA"
+
+      - name: Update version references
+        run: node .github/scripts/update-version-refs.cjs ${{ inputs.version }}
+
+      - name: Commit version bump
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add package.json docs/getting-started.md
+          git commit -m "chore: release v${{ inputs.version }}"
+          git push
+
+      - name: Create git tag
+        run: |
+          git tag "v${{ inputs.version }}"
+          git push origin "v${{ inputs.version }}"
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: 'pnpm'
+          registry-url: 'https://registry.npmjs.org'
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build and pack
+        run: |
+          pnpm build
+          pnpm pack
+
+      - name: Publish to npmjs
+        run: npm publish --access public --provenance
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "v${{ inputs.version }}" \
+            --title "v${{ inputs.version }}" \
+            --generate-notes \
+            bouncesecurity-aghast-${{ inputs.version }}.tgz

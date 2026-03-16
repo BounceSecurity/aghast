@@ -1,0 +1,53 @@
+{
+  "scanId": "scan-2026-01-18-110000-def456",
+  "timestamp": "2026-01-18T11:00:00.000Z",
+  "version": "1.0.0",
+  "repository": {
+    "path": "/path/to/other-repo",
+    "remoteUrl": "https://github.com/org/other-repo.git",
+    "branch": "develop",
+    "isGitRepository": true
+  },
+  "issues": [
+    {
+      "checkId": "aghast-api-authz",
+      "checkName": "API Authorization Check",
+      "file": "src/api/users.ts",
+      "startLine": 45,
+      "endLine": 52,
+      "description": "Missing authorization check on DELETE endpoint.",
+      "codeSnippet": "router.delete('/users/:id', async (req, res) => {"
+    }
+  ],
+  "checks": [
+    {
+      "checkId": "aghast-api-authz",
+      "checkName": "API Authorization Check",
+      "status": "FAIL",
+      "issuesFound": 1,
+      "executionTime": 2500
+    },
+    {
+      "checkId": "aghast-sql-injection",
+      "checkName": "SQL Injection Prevention",
+      "status": "PASS",
+      "issuesFound": 0,
+      "executionTime": 1800
+    }
+  ],
+  "summary": {
+    "totalChecks": 2,
+    "passedChecks": 1,
+    "failedChecks": 1,
+    "flaggedChecks": 0,
+    "errorChecks": 0,
+    "totalIssues": 1
+  },
+  "aiProvider": {
+    "name": "claude-code",
+    "models": ["claude-sonnet-4-5-20250929"]
+  },
+  "executionTime": 4300,
+  "startTime": "2026-01-18T11:00:00.000Z",
+  "endTime": "2026-01-18T11:00:04.300Z"
+}

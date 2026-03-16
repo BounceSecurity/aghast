@@ -1,0 +1,18 @@
+{
+  "checks": [
+    {
+      "id": "aghast-sql-injection",
+      "name": "SQL Injection Prevention",
+      "repositories": ["org/team/service"],
+      "instructionsFile": "ai-checks/valid-check.md",
+      "enabled": true
+    },
+    {
+      "id": "aghast-api-authz",
+      "name": "API Authorization Check",
+      "repositories": [],
+      "instructionsFile": "ai-checks/valid-check-minimal.md",
+      "enabled": true
+    }
+  ]
+}

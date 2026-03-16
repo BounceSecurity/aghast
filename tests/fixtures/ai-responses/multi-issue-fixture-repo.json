@@ -1,0 +1,18 @@
+{
+  "issues": [
+    {
+      "file": "src/example.ts",
+      "startLine": 3,
+      "endLine": 5,
+      "description": "SQL injection: user input interpolated directly into query string."
+    },
+    {
+      "file": "src/example.ts",
+      "startLine": 8,
+      "endLine": 10,
+      "description": "Missing input validation on id parameter in deleteUser function."
+    }
+  ],
+  "summary": "Found 2 security issues in the codebase.",
+  "analysisNotes": "Focused on SQL injection and input validation patterns."
+}

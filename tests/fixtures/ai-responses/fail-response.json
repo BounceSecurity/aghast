@@ -1,0 +1,16 @@
+{
+  "issues": [
+    {
+      "file": "src/api/users.ts",
+      "startLine": 45,
+      "endLine": 52,
+      "description": "## Missing Authorization Check\n\nThe DELETE /users/:id endpoint allows any authenticated user to delete any user account without checking privileges.\n\n### Call Stack / Data Flow\n\n1. `DELETE /api/users/:id` → `routes/users.ts:45`\n2. `deleteUserHandler()` extracts `userId` from `req.params`\n3. Direct database deletion without authorization check\n\n### Attack Scenario\n\n1. Attacker authenticates as regular user\n2. Sends DELETE to `/api/users/admin-id`\n3. Admin account is deleted\n\n### Recommendation\n\nAdd authorization middleware to verify the requesting user has delete permissions."
+    },
+    {
+      "file": "src/api/orders.ts",
+      "startLine": 78,
+      "endLine": 85,
+      "description": "## SQL Injection in Order Query\n\nUser input is concatenated directly into SQL query string.\n\n### Recommendation\n\nUse parameterized queries instead of string concatenation."
+    }
+  ]
+}

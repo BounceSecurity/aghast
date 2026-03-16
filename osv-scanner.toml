@@ -1,0 +1,3 @@
+[[IgnoredVulns]]
+id = "CVE-2025-69873"
+reason = "ajv@6.12.6 is a dev-only transitive dependency of eslint. The CVE requires $data option enabled, which is not used exploitably by ESLint. ESLint pins ajv@6.x and has not released a fix yet."

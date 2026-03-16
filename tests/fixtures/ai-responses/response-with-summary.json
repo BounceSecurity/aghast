@@ -1,0 +1,12 @@
+{
+  "issues": [
+    {
+      "file": "src/api/users.ts",
+      "startLine": 45,
+      "endLine": 52,
+      "description": "Missing authorization check on user deletion endpoint."
+    }
+  ],
+  "summary": "Found 1 authorization issue in the users API.",
+  "analysisNotes": "Focused on REST endpoint authorization patterns."
+}

@@ -1,0 +1,36 @@
+{
+  "scanId": "scan-2026-01-18-103045-abc123",
+  "timestamp": "2026-01-18T10:30:45.123Z",
+  "version": "1.0.0",
+  "repository": {
+    "path": "/path/to/repository",
+    "remoteUrl": "https://github.com/org/repo.git",
+    "branch": "main",
+    "isGitRepository": true
+  },
+  "issues": [],
+  "checks": [
+    {
+      "checkId": "aghast-sql-injection",
+      "checkName": "SQL Injection Prevention",
+      "status": "PASS",
+      "issuesFound": 0,
+      "executionTime": 1800
+    }
+  ],
+  "summary": {
+    "totalChecks": 1,
+    "passedChecks": 1,
+    "failedChecks": 0,
+    "flaggedChecks": 0,
+    "errorChecks": 0,
+    "totalIssues": 0
+  },
+  "aiProvider": {
+    "name": "claude-code",
+    "models": ["claude-sonnet-4-5-20250929"]
+  },
+  "executionTime": 1800,
+  "startTime": "2026-01-18T10:30:00.000Z",
+  "endTime": "2026-01-18T10:30:01.800Z"
+}

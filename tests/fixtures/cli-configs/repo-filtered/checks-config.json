@@ -1,0 +1,14 @@
+{
+  "checks": [
+    {
+      "id": "aghast-specific-repo",
+      "repositories": ["nonexistent-org/nonexistent-repo"],
+      "enabled": true
+    },
+    {
+      "id": "aghast-all-repos",
+      "repositories": [],
+      "enabled": true
+    }
+  ]
+}

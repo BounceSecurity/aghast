@@ -1,0 +1,18 @@
+{
+  "checks": [
+    {
+      "id": "aghast-enabled-check",
+      "name": "Enabled Check",
+      "repositories": [],
+      "instructionsFile": "../ai-checks/valid-check.md",
+      "enabled": true
+    },
+    {
+      "id": "aghast-disabled-check",
+      "name": "Disabled Check",
+      "repositories": [],
+      "instructionsFile": "../ai-checks/valid-check-minimal.md",
+      "enabled": false
+    }
+  ]
+}

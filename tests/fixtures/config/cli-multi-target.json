@@ -1,0 +1,15 @@
+{
+  "checks": [
+    {
+      "id": "aghast-mt-sqli",
+      "name": "Multi-Target SQL Injection",
+      "repositories": [],
+      "instructionsFile": "../ai-checks/valid-check.md",
+      "enabled": true,
+      "checkTarget": {
+        "type": "semgrep",
+        "rules": "unused-in-mock.yaml"
+      }
+    }
+  ]
+}

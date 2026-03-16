@@ -1,0 +1,6 @@
+{
+  "aiProvider": {
+    "name": "claude-code",
+    "model": "claude-opus-4-6"
+  }
+}

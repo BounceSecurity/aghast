@@ -1,0 +1,32 @@
+# Claude Code
+.claude/
+
+# Node.js
+node_modules/
+dist/
+
+# Test output
+test-results.xml
+.tmp-test-*
+
+# Environment files (contain secrets)
+.env
+.env.local
+.env.*.local
+
+# Worktrees
+.worktrees/
+
+# Skill temp files
+.claude-tmp/
+
+.vscode
+
+# External checks config (private repo cloned as subfolder)
+checks-config/
+
+# Test codebases (live in external repo)
+test-codebases/
+
+# Local scripts
+*.ps1

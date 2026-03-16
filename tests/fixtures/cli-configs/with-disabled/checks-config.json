@@ -1,0 +1,14 @@
+{
+  "checks": [
+    {
+      "id": "aghast-enabled-check",
+      "repositories": [],
+      "enabled": true
+    },
+    {
+      "id": "aghast-disabled-check",
+      "repositories": [],
+      "enabled": false
+    }
+  ]
+}

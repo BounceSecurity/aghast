@@ -1,0 +1,89 @@
+#!/usr/bin/env node
+/**
+ * Unified CLI entry point for aghast.
+ * Subcommand router: delegates to `scan` or `new-check`.
+ *
+ * Usage:
+ *   aghast scan <repo-path> [options]
+ *   aghast new-check [options]
+ *   aghast --help
+ *   aghast --version
+ */
+
+import 'dotenv/config';
+import { createRequire } from 'node:module';
+import { ERROR_CODES, formatError, formatFatalError } from './error-codes.js';
+
+// Signal to subcommand modules that they're being imported, not run directly
+process.env._AGHAST_CLI = '1';
+
+const USAGE = `Usage: aghast <command> [options]
+
+Commands:
+  scan        Run security checks against a repository
+  new-check   Scaffold a new security check
+
+Options:
+  --help      Show this help message
+  --version   Show version number
+
+Run 'aghast <command> --help' for more information on a command.`;
+
+function getVersion(): string {
+  const require = createRequire(import.meta.url);
+  const pkg = require('../package.json') as { version: string };
+  return pkg.version;
+}
+
+function printVersion(): void {
+  console.log(getVersion());
+}
+
+async function main(): Promise<void> {
+  // Graceful shutdown on POSIX signals
+  process.on('SIGINT', () => {
+    process.exit(130);
+  });
+  process.on('SIGTERM', () => {
+    process.exit(143);
+  });
+
+  const args = process.argv.slice(2);
+  const command = args[0];
+
+  if (!command || command === '--help' || command === '-h') {
+    console.log(USAGE);
+    process.exit(0);
+  }
+
+  if (command === '--version' || command === '-V') {
+    printVersion();
+    process.exit(0);
+  }
+
+  const subArgs = args.slice(1);
+
+  switch (command) {
+    case 'scan': {
+      const { runScan } = await import('./index.js');
+      await runScan(subArgs);
+      break;
+    }
+    case 'new-check': {
+      const { runNewCheck } = await import('./new-check.js');
+      await runNewCheck(subArgs);
+      break;
+    }
+    default:
+      console.error(formatError(ERROR_CODES.E1002, `Unknown command: ${command}`));
+      console.error('');
+      console.error(USAGE);
+      process.exit(1);
+  }
+}
+
+main().catch((err) => {
+  console.error('');
+  console.error(formatFatalError(err instanceof Error ? err.message : String(err), getVersion()));
+  process.exit(1);
+});

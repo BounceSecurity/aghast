@@ -1,0 +1,13 @@
+{
+  "checks": [
+    {
+      "id": "aghast-path-filtered",
+      "name": "Path Filtered Check",
+      "repositories": [],
+      "instructionsFile": "ai-checks/valid-check.md",
+      "applicablePaths": ["src/**/*.ts", "src/**/*.js"],
+      "excludedPaths": ["src/**/*.test.ts", "src/**/*.spec.ts"],
+      "enabled": true
+    }
+  ]
+}

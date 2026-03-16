@@ -1,0 +1,5 @@
+{
+  "id": "aghast-api-authz",
+  "name": "API Authorization Check",
+  "instructionsFile": "aghast-api-authz.md"
+}

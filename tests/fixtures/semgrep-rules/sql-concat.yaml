@@ -1,0 +1,8 @@
+rules:
+  - id: sql-string-concat
+    pattern-regex: 'WHERE.*\$\{'
+    message: >
+      SQL query uses string interpolation which may lead to SQL injection.
+      Use parameterized queries instead.
+    languages: [javascript, typescript]
+    severity: WARNING
