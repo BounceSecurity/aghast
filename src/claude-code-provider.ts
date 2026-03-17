@@ -73,7 +73,7 @@ export class ClaudeCodeProvider implements AIProvider {
       this.model = config.model;
     }
     if (!this.apiKey && !this.useLocalClaude) {
-      throw new Error('ANTHROPIC_API_KEY is required (or set AGHAST_LOCAL_CLAUDE=true to use your local Claude Code session)');
+      throw new Error('ANTHROPIC_API_KEY is required');
     }
     if (this.useLocalClaude) {
       logProgress(TAG, 'Using local Claude Code session for authentication');
