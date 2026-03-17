@@ -22,8 +22,9 @@ test-results.xml
 
 .vscode
 
-# External checks config (private repo cloned as subfolder)
+# Other repos (cloned as subfolders)
 checks-config/
+checks-config-public/
 
 # Test codebases (live in external repo)
 test-codebases/

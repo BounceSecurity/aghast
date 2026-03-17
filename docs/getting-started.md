@@ -33,6 +33,47 @@ npm uninstall -g @bouncesecurity/aghast
 export ANTHROPIC_API_KEY=your-api-key
 ```
 
+## Try it out with example checks
+
+The [aghast-bounce-checks-public](https://github.com/BounceSecurity/aghast-bounce-checks-public) repository contains example security checks and sample codebases you can use to try out aghast without writing any checks yourself.
+
+Clone the example repo:
+
+```bash
+git clone https://github.com/BounceSecurity/aghast-bounce-checks-public.git
+```
+
+The repo includes two example checks:
+
+| Check | Type | Description |
+|-------|------|-------------|
+| `aghast-importantvalidations-mc` | `semgrep` (multi-target) | Checks that important validations are performed before AI queries. Uses Semgrep to find targets, then AI analyzes each one. |
+| `aghast-py-missing-token-decorator` | `semgrep-only` | Detects Flask endpoints missing an API token decorator. Semgrep-only — no AI or API key needed. |
+
+It also includes matching test codebases in `test-codebases/` that are pre-configured as target repositories in `checks-config.json`.
+
+### Run a semgrep-only check (no API key needed)
+
+The `aghast-py-missing-token-decorator` check is `semgrep-only`, so it requires Semgrep but **not** an Anthropic API key:
+
+```bash
+aghast scan ./aghast-bounce-checks-public/test-codebases/test-7-missing-token-decorator \
+  --config-dir ./aghast-bounce-checks-public
+```
+
+### Run an AI-powered check
+
+The `aghast-importantvalidations-mc` check uses Semgrep to discover targets and then sends each to the AI for analysis. This requires both Semgrep and an API key:
+
+```bash
+aghast scan ./aghast-bounce-checks-public/test-codebases/test-2-importantvalidations-easy \
+  --config-dir ./aghast-bounce-checks-public
+```
+
+### Run against your own code
+
+The checks in `checks-config.json` include a `repositories` field that limits which repos each check runs against. To run the example checks against your own repository, add your repo's path or remote URL to the `repositories` array for the relevant check, or use `"*"` to match all repositories. See the [Configuration Reference](configuration.md) for details.
+
 ## 3. Create your first check
 
 Use `aghast new-check` to bootstrap a config directory and create your first security check:
