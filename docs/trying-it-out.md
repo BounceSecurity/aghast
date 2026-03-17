@@ -137,7 +137,7 @@ aghast scan ./aghast-bounce-checks-public/test-codebases/test-2-importantvalidat
   --config-dir ./aghast-bounce-checks-public
 ```
 
-**Expected result**: Semgrep finds 3 targets (endpoints calling `send_ai_query()`). The AI should report 2 issues — the `/run` and `/execute` endpoints are each missing one or more of the four required validations. The `/submit` endpoint passes all four checks.
+**Expected result**: FAIL with 2 issues — Semgrep finds 3 targets (endpoints calling `send_ai_query()`), and the AI reports that the `/run` and `/execute` endpoints are each missing one or more of the four required validations. The `/submit` endpoint passes all four checks.
 
 ---
 
