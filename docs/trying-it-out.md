@@ -7,7 +7,7 @@
 
 # Trying It Out
 
-Once you've [installed aghast](getting-started.md), you can either create your own check or try it out with pre-built examples.
+Once you've [installed aghast](getting-started.md), you can either [create your own check](#option-a-create-your-own-check) or [try it out with pre-built examples](#option-b-use-the-example-checks).
 
 ## Option A: Create your own check
 
