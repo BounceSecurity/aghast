@@ -627,7 +627,7 @@ export async function runMultiScan(options: MultiScanOptions): Promise<ScanResul
   const startTime = new Date();
   const version = await getVersion();
 
-  logProgress(TAG, `Starting multi-check scan ${scanId} (${checks.length} checks)`);
+  logProgress(TAG, `Starting scan ${scanId} (${checks.length} ${checks.length === 1 ? 'check' : 'checks'})`);
   logDebug(TAG, `Repository: ${repositoryPath}`);
 
   // Use pre-analyzed repository info if provided, otherwise analyze here
