@@ -376,7 +376,7 @@ export async function runScan(args: string[]): Promise<void> {
 
     // Validate ANTHROPIC_API_KEY (not needed when using mock or local Claude)
     if (!process.env.ANTHROPIC_API_KEY && process.env.AGHAST_LOCAL_CLAUDE !== 'true') {
-      console.error(formatError(ERROR_CODES.E3001, 'ANTHROPIC_API_KEY environment variable is required (or set AGHAST_LOCAL_CLAUDE=true)'));
+      console.error(formatError(ERROR_CODES.E3001, 'ANTHROPIC_API_KEY environment variable is required'));
       process.exit(1);
     }
   }
