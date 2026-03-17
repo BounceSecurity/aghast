@@ -82,6 +82,8 @@ aghast scan ./aghast-bounce-checks-public/test-codebases/test-8-business-logic-b
   --config-dir ./aghast-bounce-checks-public
 ```
 
+**Expected result**: FAIL with 4 issues — negative quantity accepted in add-to-cart, client-supplied price used in express checkout, duplicate coupon application allowed, and refund amount not validated against the order total.
+
 ---
 
 ### Example 2: Important Validations before AI Queries (`semgrep` multi-target type)
@@ -134,6 +136,8 @@ Each Semgrep match becomes a separate target. The AI then analyzes each target i
 aghast scan ./aghast-bounce-checks-public/test-codebases/test-2-importantvalidations-easy \
   --config-dir ./aghast-bounce-checks-public
 ```
+
+**Expected result**: Semgrep finds 3 targets (endpoints calling `send_ai_query()`). The AI should report 2 issues — the `/run` and `/execute` endpoints are each missing one or more of the four required validations. The `/submit` endpoint passes all four checks.
 
 ---
 
@@ -193,6 +197,8 @@ Each Semgrep match is mapped directly to a `SecurityIssue` — no API key needed
 aghast scan ./aghast-bounce-checks-public/test-codebases/test-7-missing-token-decorator \
   --config-dir ./aghast-bounce-checks-public
 ```
+
+**Expected result**: FAIL with 4 issues — four endpoints across three route files are missing the `@require_api_token` decorator. Health and readiness endpoints are correctly excluded by the Semgrep rule's regex filter.
 
 ---
 
