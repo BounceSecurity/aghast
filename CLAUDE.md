@@ -129,7 +129,8 @@ Precedence: CLI flags > environment variables > runtime config > built-in defaul
 - `eslint.config.js` — ESLint flat config (TypeScript + recommended rules)
 - `config/prompts/` — Generic prompt templates prepended to all check executions (selected via `--generic-prompt` or `AGHAST_GENERIC_PROMPT`)
 - `docs/README.md` — Documentation index
-- `docs/getting-started.md` — Getting started guide (installation, setup, first scan)
+- `docs/getting-started.md` — Getting started guide (installation, setup)
+- `docs/trying-it-out.md` — Example checks walkthrough and first scan guide
 - `docs/scanning.md` — Scan command reference (CLI options, env vars, output formats)
 - `docs/creating-checks.md` — Creating checks reference (new-check CLI, what gets created)
 - `docs/configuration.md` — Full configuration reference (check types, Layer 1/2 schemas, runtime config)
@@ -155,7 +156,7 @@ Users install via `npm install -g @bouncesecurity/aghast@<version>` (requires `~
 
 ## Documentation
 
-Doc pages in `docs/` have navigation (index breadcrumb, previous/next links). When adding, removing, or reordering doc pages, update the navigation links in all affected pages and the index in `docs/README.md`. The page order is: Getting Started → Scanning → Creating Checks → Configuration Reference → Development.
+Doc pages in `docs/` have navigation (index breadcrumb, previous/next links). When adding, removing, or reordering doc pages, update the navigation links in all affected pages and the index in `docs/README.md`. The page order is: Getting Started → Trying It Out → Scanning → Creating Checks → Configuration Reference → Development.
 
 ## Licensing
 This project is licensed under AGPL v3. Copyright (C) 2026 Bounce Consulting Ltd.
