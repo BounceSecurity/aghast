@@ -196,6 +196,14 @@ export class ClaudeCodeProvider implements AIProvider {
               throw new FatalProviderError(`AI provider authentication failed (401): ${authErrorMatch}`);
             }
 
+            // Detect login required — fail immediately, unrecoverable without user action
+            const loginRequiredMatch = textChunks.find((t: string) =>
+              /not logged in/i.test(t),
+            );
+            if (loginRequiredMatch) {
+              throw new FatalProviderError(`AI provider not logged in: ${loginRequiredMatch}. Please authenticate before running scans.`);
+            }
+
             // Detect API errors surfaced as assistant text by the SDK
             const apiErrorMatch = textChunks.find((t: string) => t.includes('API Error:'));
             if (apiErrorMatch) {
