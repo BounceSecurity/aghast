@@ -337,6 +337,29 @@ describe('ClaudeCodeProvider: fatal error handling (401 auth)', () => {
   });
 });
 
+describe('ClaudeCodeProvider: fatal error handling (not logged in)', () => {
+  it('throws FatalProviderError immediately on "Not logged in" message', async () => {
+    const messages = [
+      assistantMsg('Not logged in · Please run /login'),
+      // Should never reach these
+      assistantMsg('This should not be reached'),
+      successResult(),
+    ];
+
+    const provider = new ClaudeCodeProvider({ _queryFn: createFakeQueryFn(messages) });
+    await provider.initialize({ apiKey: 'test-key' });
+
+    await assert.rejects(
+      () => provider.executeCheck('test prompt', '/tmp/repo'),
+      (err: Error) => {
+        assert.ok(err instanceof FatalProviderError, 'Should be FatalProviderError');
+        assert.match(err.message, /not logged in/i);
+        return true;
+      },
+    );
+  });
+});
+
 describe('ClaudeCodeProvider: enableDebug', () => {
   it('enableDebug method exists and does not throw', async () => {
     const provider = new ClaudeCodeProvider({ _queryFn: createFakeQueryFn([successResult()]) });

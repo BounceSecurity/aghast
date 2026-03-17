@@ -73,7 +73,7 @@ export class ClaudeCodeProvider implements AIProvider {
       this.model = config.model;
     }
     if (!this.apiKey && !this.useLocalClaude) {
-      throw new Error('ANTHROPIC_API_KEY is required (or set AGHAST_LOCAL_CLAUDE=true to use your local Claude Code session)');
+      throw new Error('ANTHROPIC_API_KEY is required');
     }
     if (this.useLocalClaude) {
       logProgress(TAG, 'Using local Claude Code session for authentication');
@@ -194,6 +194,14 @@ export class ClaudeCodeProvider implements AIProvider {
             );
             if (authErrorMatch) {
               throw new FatalProviderError(`AI provider authentication failed (401): ${authErrorMatch}`);
+            }
+
+            // Detect login required — fail immediately, unrecoverable without user action
+            const loginRequiredMatch = textChunks.find((t: string) =>
+              /not logged in/i.test(t),
+            );
+            if (loginRequiredMatch) {
+              throw new FatalProviderError(`AI provider not logged in: ${loginRequiredMatch}. Please authenticate before running scans.`);
             }
 
             // Detect API errors surfaced as assistant text by the SDK
