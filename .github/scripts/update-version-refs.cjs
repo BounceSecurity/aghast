@@ -20,3 +20,15 @@ for (const file of ['docs/getting-started.md']) {
   );
   fs.writeFileSync(file, content);
 }
+
+// Update release workflow description with next possible versions
+const [major, minor, patch] = version.split('.').map(Number);
+const nextPatch = `${major}.${minor}.${patch + 1}`;
+const nextMinor = `${major}.${minor + 1}.0`;
+const nextMajor = `${major + 1}.0.0`;
+const releaseYml = fs.readFileSync('.github/workflows/release.yml', 'utf-8');
+const updatedYml = releaseYml.replace(
+  /description: 'Release version \(e\.g\. [^']+\)'/,
+  `description: 'Release version (e.g. ${nextPatch}, ${nextMinor}, ${nextMajor})'`
+);
+fs.writeFileSync('.github/workflows/release.yml', updatedYml);
