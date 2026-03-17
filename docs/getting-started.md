@@ -18,7 +18,7 @@ This guide walks you through setting up aghast and running your first security s
 ## 1. Install aghast
 
 ```bash
-npm install -g @bouncesecurity/aghast@0.0.10
+npm install -g @bouncesecurity/aghast@0.0.11
 ```
 
 To uninstall:
