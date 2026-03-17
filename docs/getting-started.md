@@ -18,7 +18,7 @@ This guide walks you through installing aghast and setting up your environment.
 ## 1. Install aghast
 
 ```bash
-npm install -g @bouncesecurity/aghast@0.0.13
+npm install -g @bouncesecurity/aghast@0.1.0
 ```
 
 To uninstall:
