@@ -1,0 +1,7 @@
+{
+  "id": "aghast-sarif-val",
+  "name": "SARIF Verification Check",
+  "severity": "high",
+  "confidence": "medium",
+  "checkTarget": { "type": "sarif-verify" }
+}

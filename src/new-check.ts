@@ -150,7 +150,7 @@ async function promptForMissing(flags: ParsedFlags): Promise<Required<Omit<Parse
     passCondition: await ask('PASS condition', flags.passCondition),
     failCondition: await ask('FAIL condition', flags.failCondition),
     flagCondition: await askOptional('FLAG condition (requires human investigation)', flags.flagCondition),
-    checkType: await askWithDefault('Check type (repository/semgrep/semgrep-only)', 'repository', flags.checkType),
+    checkType: await askWithDefault('Check type (repository/semgrep/semgrep-only/sarif-verify)', 'repository', flags.checkType),
     semgrepRules: '',
     maxTargets: '',
     language: '',
@@ -167,6 +167,8 @@ async function promptForMissing(flags: ParsedFlags): Promise<Required<Omit<Parse
     } else {
       result.language = flags.language ?? '';
     }
+  } else if (result.checkType === 'sarif-verify') {
+    result.maxTargets = await askOptional('Max targets', flags.maxTargets);
   }
 
   if (rl) rl.close();
@@ -215,9 +217,9 @@ function validateInputs(
     errors.push(`Invalid confidence "${inputs.confidence}". Must be one of: ${validConfidences.join(', ')}`);
   }
 
-  const validCheckTypes = ['repository', 'semgrep', 'semgrep-only', ''];
+  const validCheckTypes = ['repository', 'semgrep', 'semgrep-only', 'sarif-verify', ''];
   if (!validCheckTypes.includes(inputs.checkType)) {
-    errors.push(`Invalid check type "${inputs.checkType}". Must be one of: repository, semgrep, semgrep-only`);
+    errors.push(`Invalid check type "${inputs.checkType}". Must be one of: repository, semgrep, semgrep-only, sarif-verify`);
   }
 
   if (inputs.maxTargets) {
@@ -320,8 +322,8 @@ function generateCheckDefinition(inputs: {
     name: inputs.name,
   };
 
-  // semgrep-only checks don't have an instructionsFile
-  if (inputs.checkType !== 'semgrep-only') {
+  // semgrep-only and sarif-verify checks don't require an instructionsFile
+  if (inputs.checkType !== 'semgrep-only' && inputs.checkType !== 'sarif-verify') {
     def.instructionsFile = `${inputs.id}.md`;
   }
 
@@ -340,6 +342,12 @@ function generateCheckDefinition(inputs: {
     } else {
       checkTarget.rules = `${inputs.id}.yaml`;
     }
+    if (inputs.maxTargets) {
+      checkTarget.maxTargets = parseInt(inputs.maxTargets, 10);
+    }
+    def.checkTarget = checkTarget;
+  } else if (inputs.checkType === 'sarif-verify') {
+    const checkTarget: Record<string, unknown> = { type: 'sarif-verify' };
     if (inputs.maxTargets) {
       checkTarget.maxTargets = parseInt(inputs.maxTargets, 10);
     }
@@ -384,7 +392,7 @@ Options:
   --pass-condition <text>    Condition for a PASS result
   --fail-condition <text>    Condition for a FAIL result
   --flag-condition <text>    Condition for a FLAG result (optional)
-  --check-type <type>        Check type: repository (default), semgrep, semgrep-only
+  --check-type <type>        Check type: repository (default), semgrep, semgrep-only, sarif-verify
   --semgrep-rules <paths>    Comma-separated Semgrep rule file paths
   --max-targets <n>          Maximum number of Semgrep targets to analyze
   --language <lang>          Language for Semgrep template: python, javascript, typescript
@@ -397,6 +405,7 @@ Check types:
   repository     AI analyzes the whole repository (no Semgrep)
   semgrep        Semgrep finds targets, AI analyzes each one
   semgrep-only   Semgrep findings mapped directly to issues (no AI)
+  sarif-verify   External SARIF provides findings, AI validates each one
 
 Examples:
   aghast new-check --config-dir ./my-checks
@@ -460,8 +469,8 @@ export async function runNewCheck(args: string[]): Promise<void> {
   await writeFile(resolve(checkFolder, `${inputs.id}.json`), JSON.stringify(checkDef, null, 2) + '\n', 'utf-8');
   console.log(`Created: ${checkFolder}/${inputs.id}.json`);
 
-  // Generate and write instructions.md (skipped for semgrep-only)
-  if (inputs.checkType !== 'semgrep-only') {
+  // Generate and write instructions.md (skipped for semgrep-only and sarif-verify)
+  if (inputs.checkType !== 'semgrep-only' && inputs.checkType !== 'sarif-verify') {
     const markdown = generateMarkdown(inputs);
     await writeFile(resolve(checkFolder, `${inputs.id}.md`), markdown, 'utf-8');
     console.log(`Created: ${checkFolder}/${inputs.id}.md`);

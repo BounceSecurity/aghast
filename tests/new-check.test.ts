@@ -678,4 +678,30 @@ describe('new-check utility', () => {
     assert.equal(checkDef.checkTarget.rules, 'aghast-test.yaml');
     assert.equal(checkDef.instructionsFile, undefined);
   });
+
+  it('sarif-verify type creates correct checkTarget with no instructionsFile', async () => {
+    const result = await runNewCheck(allFlags({
+      '--check-type': 'sarif-verify',
+    }));
+
+    assert.equal(result.exitCode, 0, `CLI failed: ${result.stderr}`);
+
+    const checkDef = JSON.parse(await readFile(resolve(checksDir, 'aghast-test', 'aghast-test.json'), 'utf-8'));
+    assert.equal(checkDef.checkTarget.type, 'sarif-verify');
+    assert.equal(checkDef.instructionsFile, undefined, 'sarif-verify should not have instructionsFile');
+    assert.equal(checkDef.checkTarget.rules, undefined, 'sarif-verify should not have rules');
+  });
+
+  it('sarif-verify does not generate .md file', async () => {
+    const result = await runNewCheck(allFlags({
+      '--check-type': 'sarif-verify',
+    }));
+
+    assert.equal(result.exitCode, 0, `CLI failed: ${result.stderr}`);
+
+    const { readdirSync } = await import('node:fs');
+    const files = readdirSync(resolve(checksDir, 'aghast-test'));
+    assert.ok(!files.includes('aghast-test.md'), 'sarif-verify should not generate .md file');
+    assert.ok(files.includes('aghast-test.json'), 'Should still have .json');
+  });
 });

@@ -57,7 +57,7 @@ export interface SecurityCheck {
 // --- A.2 Check Target Definition ---
 
 export interface CheckTargetDefinition {
-  type: 'semgrep' | 'semgrep-only' | 'repository';
+  type: 'semgrep' | 'semgrep-only' | 'repository' | 'sarif-verify';
   rules?: string | string[];
   config?: string;
   maxTargets?: number;

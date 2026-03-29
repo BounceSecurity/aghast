@@ -23,9 +23,9 @@ Five core components orchestrated by the Security Scanner:
 4. **Repository Analyzer** — Extracts Git metadata (remote URL, branch, commit) from target repos
 5. **Report Generator** — Produces `security_checks_results.json` (or `.sarif`) conforming to the `ScanResults` schema
 
-**Scan workflow**: User initiates → repo metadata extracted → checks filtered for repo → for each check: load instructions (if applicable), discover targets (Semgrep for multi-target/semgrep-only), AI analyzes (or map findings directly for semgrep-only), results parsed → aggregate → JSON report → exit code.
+**Scan workflow**: User initiates → repo metadata extracted → checks filtered for repo → for each check: load instructions (if applicable), discover targets (Semgrep for multi-target/semgrep-only, or read SARIF for sarif-verify), AI analyzes (or map findings directly for semgrep-only), results parsed → aggregate → JSON report → exit code.
 
-**Check types**: Repository-wide (AI analyzes whole repo), multi-target (Semgrep discovers specific code locations, AI analyzes each independently), or semgrep-only (Semgrep findings mapped directly to issues, no AI involvement).
+**Check types**: Repository-wide (AI analyzes whole repo), multi-target (Semgrep discovers specific code locations, AI analyzes each independently), semgrep-only (Semgrep findings mapped directly to issues, no AI involvement), or sarif-verify (external SARIF file provides findings, AI validates each as true/false positive).
 
 ## Key Data Flow
 
@@ -65,7 +65,7 @@ The unified entry point is `src/cli.ts` which routes to `runScan()` (from `src/i
 - `pnpm build` — Compile TypeScript
 - `pnpm lint` — Run ESLint on src/ and tests/
 - `pnpm lint:fix` — Run ESLint with auto-fix on src/ and tests/
-- `pnpm scan -- <repo-path> --config-dir <path> [--output <path>] [--output-format json|sarif] [--fail-on-check-failure] [--debug] [--model <model>] [--ai-provider <name>] [--generic-prompt <file>] [--runtime-config <path>]` — Run checks (`--config-dir` required, default format: `json`, default output: `<repo-path>/security_checks_results.<ext>`, exit 1 on FAIL/ERROR with `--fail-on-check-failure`, `--debug` enables verbose output). Precedence: CLI flags > env vars > runtime config > defaults.
+- `pnpm scan -- <repo-path> --config-dir <path> [--output <path>] [--output-format json|sarif] [--fail-on-check-failure] [--debug] [--model <model>] [--ai-provider <name>] [--generic-prompt <file>] [--runtime-config <path>] [--sarif-file <path>]` — Run checks (`--config-dir` required, default format: `json`, default output: `<repo-path>/security_checks_results.<ext>`, exit 1 on FAIL/ERROR with `--fail-on-check-failure`, `--debug` enables verbose output, `--sarif-file` provides SARIF input for sarif-verify checks). Precedence: CLI flags > env vars > runtime config > defaults.
 - `pnpm new-check -- --config-dir <path> [--id <id> --name <name> ...]` — Interactive CLI to scaffold a new check (creates check folder with `<id>.json`, `<id>.md`, optional `<id>.yaml` Semgrep rule + tests; appends to `checks-config.json`). Bootstraps config directory if it doesn't exist.
 
 ## Check Definitions (External)
@@ -127,7 +127,7 @@ Precedence: CLI flags > environment variables > runtime config > built-in defaul
 - `src/formatters/types.ts` — Formatter type definitions
 - `.github/workflows/release.yml` — Release workflow (version bump, README update, tag, build, GitHub release)
 - `eslint.config.js` — ESLint flat config (TypeScript + recommended rules)
-- `config/prompts/` — Generic prompt templates prepended to all check executions (selected via `--generic-prompt` or `AGHAST_GENERIC_PROMPT`)
+- `config/prompts/` — Generic prompt templates prepended to all check executions (selected via `--generic-prompt` or `AGHAST_GENERIC_PROMPT`); includes `sarif-validation-instructions.md` used automatically for sarif-verify checks
 - `docs/README.md` — Documentation index
 - `docs/getting-started.md` — Getting started guide (installation, setup)
 - `docs/trying-it-out.md` — Example checks walkthrough and first scan guide

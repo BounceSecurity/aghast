@@ -20,6 +20,7 @@ import {
   mixedResultsConfigDir,
   semgrepOnlyConfigDir,
   mixedWithSemgrepOnlyConfigDir,
+  sarifVerifyConfigDir,
   cli3TargetsSarif,
   emptyResultsSarif,
   failFixtureRepo,
@@ -535,5 +536,110 @@ describe('CLI mock mode: semgrep-only checks', () => {
       (issueWithSnippet!.codeSnippet as string).includes('SELECT'),
       'Snippet should contain SQL from fixture file',
     );
+  });
+});
+
+// ─── sarif-verify checks ────────────────────────────────────────────
+
+describe('CLI mock mode: sarif-verify checks', () => {
+  afterEach(cleanupOutput);
+
+  it('PASS: empty SARIF → 0 findings → PASS', async () => {
+    const { exitCode } = await runCLI(
+      { AGHAST_MOCK_AI: 'true' },
+      [fixtureRepo, '--config-dir', sarifVerifyConfigDir, '--sarif-file', emptyResultsSarif],
+    );
+    assert.equal(exitCode, 0);
+
+    const results = await readResults();
+    const checks = results.checks as Array<Record<string, unknown>>;
+    const summary = results.summary as Record<string, number>;
+
+    assert.equal(checks.length, 1);
+    assert.equal(checks[0].status, 'PASS');
+    assert.equal(checks[0].checkId, 'aghast-sarif-val');
+    assert.equal(checks[0].targetsAnalyzed, 0);
+    assert.equal(checks[0].issuesFound, 0);
+    assert.equal(summary.passedChecks, 1);
+    assert.equal(summary.totalIssues, 0);
+  });
+
+  it('PASS: SARIF with findings + mock AI returns empty issues → PASS (all false positives)', async () => {
+    // Default AGHAST_MOCK_AI=true returns {"issues": []} for every target
+    const { exitCode } = await runCLI(
+      { AGHAST_MOCK_AI: 'true' },
+      [fixtureRepo, '--config-dir', sarifVerifyConfigDir, '--sarif-file', cli3TargetsSarif],
+    );
+    assert.equal(exitCode, 0);
+
+    const results = await readResults();
+    const checks = results.checks as Array<Record<string, unknown>>;
+
+    assert.equal(checks[0].status, 'PASS');
+    assert.equal(checks[0].targetsAnalyzed, 3);
+    assert.equal(checks[0].issuesFound, 0);
+  });
+
+  it('FAIL: SARIF with findings + mock AI returns issues → FAIL', async () => {
+    const { exitCode } = await runCLI(
+      { AGHAST_MOCK_AI: failFixtureRepo },
+      [fixtureRepo, '--config-dir', sarifVerifyConfigDir, '--sarif-file', cli3TargetsSarif],
+    );
+    assert.equal(exitCode, 0);
+
+    const results = await readResults();
+    const checks = results.checks as Array<Record<string, unknown>>;
+    const issues = results.issues as Array<Record<string, unknown>>;
+
+    assert.equal(checks[0].status, 'FAIL');
+    assert.equal(checks[0].targetsAnalyzed, 3);
+    assert.ok(checks[0].issuesFound as number > 0);
+    assert.ok(issues.length > 0);
+
+    // Issues should have correct check metadata
+    for (const issue of issues) {
+      assert.equal(issue.checkId, 'aghast-sarif-val');
+      assert.equal(issue.checkName, 'SARIF Verification Check');
+    }
+  });
+
+  it('ERROR: no --sarif-file provided → ERROR status', async () => {
+    const { exitCode } = await runCLI(
+      { AGHAST_MOCK_AI: 'true' },
+      [fixtureRepo, '--config-dir', sarifVerifyConfigDir],
+    );
+    assert.equal(exitCode, 0);
+
+    const results = await readResults();
+    const checks = results.checks as Array<Record<string, unknown>>;
+
+    assert.equal(checks[0].status, 'ERROR');
+    assert.ok((checks[0].error as string).includes('--sarif-file'));
+  });
+
+  it('targetsAnalyzed field is present in check summary', async () => {
+    await runCLI(
+      { AGHAST_MOCK_AI: 'true' },
+      [fixtureRepo, '--config-dir', sarifVerifyConfigDir, '--sarif-file', cli3TargetsSarif],
+    );
+
+    const results = await readResults();
+    const checks = results.checks as Array<Record<string, unknown>>;
+    assert.equal(checks[0].targetsAnalyzed, 3);
+  });
+
+  it('severity and confidence from check config appear on issues', async () => {
+    await runCLI(
+      { AGHAST_MOCK_AI: failFixtureRepo },
+      [fixtureRepo, '--config-dir', sarifVerifyConfigDir, '--sarif-file', cli3TargetsSarif],
+    );
+
+    const results = await readResults();
+    const issues = results.issues as Array<Record<string, unknown>>;
+
+    for (const issue of issues) {
+      assert.equal(issue.severity, 'high');
+      assert.equal(issue.confidence, 'medium');
+    }
   });
 });
