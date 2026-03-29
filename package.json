@@ -38,14 +38,14 @@
     "@types/picomatch": "^4.0.2",
     "eslint": "^10.0.3",
     "tsx": "^4.21.0",
-    "typescript": "~5.9.3",
+    "typescript": "~6.0.2",
     "typescript-eslint": "^8.57.1"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.76",
     "dotenv": "^17.3.1",
     "picocolors": "^1.1.1",
-    "picomatch": "^4.0.3"
+    "picomatch": "^4.0.4"
   },
   "pnpm": {
     "overrides": {

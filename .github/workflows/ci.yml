@@ -38,7 +38,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, ubuntu-latest, macos-latest]
+        os: ${{ github.event.repository.name == 'aghast' && fromJSON('["windows-latest","ubuntu-latest","macos-latest"]') || fromJSON('["ubuntu-latest"]') }}
         shard: [1, 2, 3]
         node-version: ['20', '22', '24']
 
@@ -142,7 +142,7 @@ jobs:
       matrix:
         # Single Node version per OS: Semgrep + SARIF parsing is not
         # Node-version-sensitive; version coverage comes from test shards.
-        os: [windows-latest, ubuntu-latest, macos-latest]
+        os: ${{ github.event.repository.name == 'aghast' && fromJSON('["windows-latest","ubuntu-latest","macos-latest"]') || fromJSON('["ubuntu-latest"]') }}
 
     steps:
       - uses: actions/checkout@v6
@@ -174,7 +174,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, ubuntu-latest, macos-latest]
+        os: ${{ github.event.repository.name == 'aghast' && fromJSON('["windows-latest","ubuntu-latest","macos-latest"]') || fromJSON('["ubuntu-latest"]') }}
         node-version: ['20', '22', '24']
 
     steps:
