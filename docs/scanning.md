@@ -25,6 +25,7 @@ aghast scan <repo-path> --config-dir <path> [options]
 | `--model <model>` | AI model override (e.g. `claude-sonnet-4-20250514`) |
 | `--ai-provider <name>` | AI provider name (default: `claude-code`) |
 | `--generic-prompt <file>` | Generic prompt template filename |
+| `--sarif-file <path>` | Path to SARIF file for `sarif-verify` checks |
 | `--runtime-config <path>` | Path to runtime config file. Useful for setting persistent defaults instead of repeating CLI flags |
 
 Run `aghast scan --help` for the full list of options.
@@ -55,13 +56,14 @@ Results are written to `security_checks_results.<ext>` in the target repo by def
 
 ## Check Types
 
-aghast supports three types of security checks:
+aghast supports four types of security checks:
 
 | Type | Semgrep? | AI? | Description |
 |------|----------|-----|-------------|
 | `repository` | No | Yes | AI analyzes the entire repository against markdown instructions |
 | `semgrep` | Yes | Yes | Semgrep discovers specific code locations, AI analyzes each one |
 | `semgrep-only` | Yes | No | Semgrep findings are mapped directly to issues (no AI needed, no API key needed) |
+| `sarif-verify` | No | Yes | External SARIF file provides findings, AI validates each as true/false positive (use `--sarif-file`) |
 
 See the [Configuration Reference](configuration.md) for check definition schemas and result statuses.
 

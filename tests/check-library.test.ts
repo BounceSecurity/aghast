@@ -575,6 +575,41 @@ describe('loadCheckDefinition (semgrep-only)', () => {
   });
 });
 
+// --- sarif-verify checks ---
+
+describe('validateCheck (sarif-verify)', () => {
+  it('sarif-verify check without instructionsFile passes validation', async () => {
+    const check = makeCheck({
+      id: 'aghast-sv',
+      instructionsFile: undefined,
+      checkTarget: { type: 'sarif-verify' },
+    });
+    const result = await validateCheck(check, fixturesDir);
+    assert.ok(result.valid, `Expected valid, got errors: ${result.errors.join(', ')}`);
+    assert.equal(result.errors.length, 0);
+  });
+
+  it('sarif-verify check with instructionsFile passes validation', async () => {
+    const check = makeCheck({
+      id: 'aghast-sql-injection',
+      checkTarget: { type: 'sarif-verify' },
+    });
+    const result = await validateCheck(check, fixturesDir);
+    assert.ok(result.valid, `Expected valid, got errors: ${result.errors.join(', ')}`);
+  });
+});
+
+describe('loadCheckDefinition (sarif-verify)', () => {
+  it('loads sarif-verify check without instructionsFile', async () => {
+    const def = await loadCheckDefinition(resolve(fixtureChecksDir, 'aghast-sarif-verify'));
+    assert.equal(def.id, 'aghast-sarif-verify');
+    assert.equal(def.name, 'SARIF Verify Check');
+    assert.equal(def.instructionsFile, undefined);
+    assert.ok(def.checkTarget);
+    assert.equal(def.checkTarget!.type, 'sarif-verify');
+  });
+});
+
 // --- Schema validation ---
 
 describe('loadCheckRegistry (schema validation)', () => {

@@ -33,6 +33,7 @@ export const flagCheckConfigDir = resolve(testDir, 'fixtures', 'cli-configs', 'f
 export const mixedResultsConfigDir = resolve(testDir, 'fixtures', 'cli-configs', 'mixed-results');
 export const semgrepOnlyConfigDir = resolve(testDir, 'fixtures', 'cli-configs', 'semgrep-only');
 export const mixedWithSemgrepOnlyConfigDir = resolve(testDir, 'fixtures', 'cli-configs', 'mixed-with-semgrep-only');
+export const sarifVerifyConfigDir = resolve(testDir, 'fixtures', 'cli-configs', 'sarif-verify');
 
 // SARIF fixtures
 export const cli3TargetsSarif = resolve(testDir, 'fixtures', 'sarif', 'cli-3-targets.sarif');

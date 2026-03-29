@@ -142,7 +142,7 @@ export async function loadCheckDefinition(checkFolderPath: string): Promise<Chec
       throw new Error(`Check definition "${defPath}": "checkTarget" must be an object`);
     }
     const ct = obj.checkTarget as Record<string, unknown>;
-    const validTypes = ['semgrep', 'semgrep-only', 'repository'];
+    const validTypes = ['semgrep', 'semgrep-only', 'repository', 'sarif-verify'];
     if (typeof ct.type !== 'string' || !validTypes.includes(ct.type)) {
       throw new Error(`Check definition "${defPath}": "checkTarget.type" must be one of: ${validTypes.join(', ')}`);
     }
@@ -163,9 +163,9 @@ export async function loadCheckDefinition(checkFolderPath: string): Promise<Chec
   const def = parsed as CheckDefinition;
 
   // instructionsFile is required for all check types except semgrep-only
-  if (def.checkTarget?.type !== 'semgrep-only' && !def.instructionsFile) {
+  if (def.checkTarget?.type !== 'semgrep-only' && def.checkTarget?.type !== 'sarif-verify' && !def.instructionsFile) {
     throw new Error(
-      `Check definition "${defPath}" is missing required field "instructionsFile" (required for non-semgrep-only checks)`,
+      `Check definition "${defPath}" is missing required field "instructionsFile" (required for non-semgrep-only/sarif-verify checks)`,
     );
   }
 
@@ -336,8 +336,8 @@ export async function validateCheck(
     errors.push('Check is missing a valid "id" field');
   }
 
-  // semgrep-only checks don't need an instructionsFile
-  if (check.checkTarget?.type === 'semgrep-only') {
+  // semgrep-only and sarif-verify checks don't need an instructionsFile
+  if (check.checkTarget?.type === 'semgrep-only' || check.checkTarget?.type === 'sarif-verify') {
     // No instructionsFile validation needed
   } else if (!check.instructionsFile) {
     errors.push('Check is missing required "instructionsFile" field');

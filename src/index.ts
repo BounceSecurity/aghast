@@ -65,6 +65,7 @@ Options:
   --model <model>            AI model override (e.g. claude-sonnet-4-20250514)
   --ai-provider <name>       AI provider name (default: claude-code)
   --generic-prompt <file>    Generic prompt template filename in prompts/ dir
+  --sarif-file <path>        Path to SARIF file for sarif-verify checks
   --runtime-config <path>    Path to runtime config file (replaces individual flags
                              for persistent configuration)
   -h, --help                 Show this help message
@@ -93,6 +94,7 @@ function parseArgs(args: string[]): {
   model?: string;
   aiProvider?: string;
   genericPrompt?: string;
+  sarifFile?: string;
 } {
   if (args.length < 1 || args[0] === '--help' || args[0] === '-h') {
     console.log(SCAN_HELP);
@@ -109,6 +111,7 @@ function parseArgs(args: string[]): {
   let model: string | undefined;
   let aiProvider: string | undefined;
   let genericPrompt: string | undefined;
+  let sarifFile: string | undefined;
 
   for (let i = 1; i < args.length; i++) {
     switch (args[i]) {
@@ -178,6 +181,16 @@ function parseArgs(args: string[]): {
         i++;
         break;
       }
+      case '--sarif-file': {
+        sarifFile = args[i + 1];
+        if (!sarifFile) {
+          console.error(formatError(ERROR_CODES.E1001, '--sarif-file requires a path argument'));
+          process.exit(1);
+        }
+        sarifFile = resolve(sarifFile);
+        i++;
+        break;
+      }
       // --fail-on-check-failure and --debug are handled above via includes()
     }
   }
@@ -185,7 +198,7 @@ function parseArgs(args: string[]): {
   return {
     repositoryPath, configDir, outputPath, outputFormat,
     failOnCheckFailure, debug, runtimeConfigPath, model, aiProvider,
-    genericPrompt,
+    genericPrompt, sarifFile,
   };
 }
 
@@ -343,8 +356,8 @@ export async function runScan(args: string[]): Promise<void> {
 
     // checkTarget rules already resolved by resolveChecks — no additional path resolution needed
 
-    // semgrep-only checks have no instructions markdown — use synthetic details
-    if (check.checkTarget?.type === 'semgrep-only') {
+    // semgrep-only and sarif-verify checks may have no instructions markdown — use synthetic details
+    if (check.checkTarget?.type === 'semgrep-only' || (check.checkTarget?.type === 'sarif-verify' && !check.instructionsFile)) {
       checksWithDetails.push({
         check,
         details: { id: check.id, name: check.name, overview: '', content: '' },
@@ -413,6 +426,7 @@ export async function runScan(args: string[]): Promise<void> {
     aiProviderName: needsAI ? (useMock ? 'mock' : aiProviderName) : undefined,
     configDir,
     genericPrompt,
+    sarifFile: parsed.sarifFile,
   });
 
   // Resolve output path: --output flag > runtime config dir > default

@@ -51,7 +51,7 @@ The [aghast-bounce-checks-public](https://github.com/BounceSecurity/aghast-bounc
 git clone https://github.com/BounceSecurity/aghast-bounce-checks-public.git
 ```
 
-The repo includes three example checks — one of each check type — with test codebases pre-configured in `checks-config.json`. Each example is described in detail below.
+The repo includes four example checks — one of each check type — with test codebases pre-configured in `checks-config.json`. Each example is described in detail below.
 
 ### Example 1: Business Logic Bypass (`repository` type)
 
@@ -199,6 +199,45 @@ aghast scan ./aghast-bounce-checks-public/test-codebases/test-7-missing-token-de
 ```
 
 **Expected result**: FAIL with 4 issues — four endpoints across three route files are missing the `@require_api_token` decorator. Health and readiness endpoints are correctly excluded by the Semgrep rule's regex filter.
+
+---
+
+### Example 4: SAST Finding Verification (`sarif-verify` type)
+
+**Check type**: `sarif-verify` — reads findings from an external SARIF file and has the AI validate each one as a true or false positive.
+
+**What it does**: Takes SARIF output from a generic SAST tool and verifies whether each reported finding is actually exploitable. The AI reads the code at each flagged location and considers context like framework protections, input validation, and data flow to determine if the finding is real.
+
+**Check definition** (`aghast-sast-verify.json`):
+
+```json
+{
+  "id": "aghast-sast-verify",
+  "name": "SAST Finding Verification",
+  "instructionsFile": "aghast-sast-verify.md",
+  "severity": "high",
+  "confidence": "medium",
+  "checkTarget": {
+    "type": "sarif-verify"
+  }
+}
+```
+
+The optional `instructionsFile` provides additional context for the AI (e.g., "this app uses Jinja2 with autoescaping enabled"). The `--sarif-file` CLI flag provides the SARIF file at runtime.
+
+**Test codebase**: `test-codebases/test-9-sast-false-positives/` — a Python Flask app with a mix of true and false positives for XSS, open redirect, and SSRF.
+
+**Sample SARIF file**: `checks/aghast-sast-verify/example-findings.sarif` — contains 7 findings (3 true positives, 4 false positives).
+
+**Run it** (requires API key, no Semgrep needed):
+
+```bash
+aghast scan ./aghast-bounce-checks-public/test-codebases/test-9-sast-false-positives \
+  --config-dir ./aghast-bounce-checks-public \
+  --sarif-file ./aghast-bounce-checks-public/checks/aghast-sast-verify/example-findings.sarif
+```
+
+**Expected result**: FAIL with ~3 issues — the AI should confirm the true positive findings (unescaped user input in HTML response, unvalidated redirect, user-supplied URL fetched without validation) and dismiss the false positives (autoescaped template output, allowlist-validated redirects, hardcoded internal URLs).
 
 ---
 

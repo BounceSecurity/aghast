@@ -107,16 +107,31 @@ Each check folder contains a JSON definition file with the check's metadata.
 }
 ```
 
+**SARIF verification check** (external SARIF findings validated by AI):
+
+```json
+{
+  "id": "aghast-sast-verify",
+  "name": "SAST Finding Verification",
+  "instructionsFile": "aghast-sast-verify.md",
+  "severity": "high",
+  "confidence": "medium",
+  "checkTarget": {
+    "type": "sarif-verify"
+  }
+}
+```
+
 | Field              | Type                          | Required | Description |
 |--------------------|-------------------------------|----------|-------------|
 | `id`               | `string`                      | Yes      | Must match the Layer 1 registry ID and folder name |
 | `name`             | `string`                      | Yes      | Human-readable check name |
-| `instructionsFile`  | `string`                     | Yes*     | Markdown file with AI instructions (*not needed for semgrep-only) |
+| `instructionsFile`  | `string`                     | Yes*     | Markdown file with AI instructions (*not needed for semgrep-only or sarif-verify) |
 | `severity`         | `string`                      | No       | `critical`, `high`, `medium`, `low`, or `informational` |
 | `confidence`       | `string`                      | No       | `high`, `medium`, or `low` |
 | `checkTarget`      | `object`                      | No       | Semgrep target configuration (omit for repository checks) |
-| `checkTarget.type` | `string`                      | Yes**    | `semgrep` or `semgrep-only` (**required if `checkTarget` present) |
-| `checkTarget.rules`| `string` or `string[]`        | Yes**    | Semgrep rule file path(s) relative to check folder |
+| `checkTarget.type` | `string`                      | Yes**    | `semgrep`, `semgrep-only`, or `sarif-verify` (**required if `checkTarget` present) |
+| `checkTarget.rules`| `string` or `string[]`        | Yes***   | Semgrep rule file path(s) relative to check folder (***not needed for sarif-verify) |
 | `checkTarget.maxTargets` | `number`               | No       | Limit number of Semgrep targets to analyze |
 | `checkTarget.concurrency` | `number`              | No       | Max parallel AI analyses for multi-target (default: 5) |
 | `applicablePaths`  | `string[]`                    | No       | Glob patterns to include (e.g. `["src/**/*.ts"]`) |
@@ -124,11 +139,12 @@ Each check folder contains a JSON definition file with the check's metadata.
 
 ## Check Types
 
-| Type | Semgrep Required? | AI Required? | Description |
-|------|-------------------|--------------|-------------|
-| `repository` | No | Yes | AI analyzes the entire repository against the instructions |
-| `semgrep` | Yes | Yes | Semgrep discovers specific code locations, AI analyzes each one |
-| `semgrep-only` | Yes | No | Semgrep findings are mapped directly to issues, no AI needed |
+| Type | Semgrep Required? | AI Required? | SARIF Input? | Description |
+|------|-------------------|--------------|--------------|-------------|
+| `repository` | No | Yes | No | AI analyzes the entire repository against the instructions |
+| `semgrep` | Yes | Yes | No | Semgrep discovers specific code locations, AI analyzes each one |
+| `semgrep-only` | Yes | No | No | Semgrep findings are mapped directly to issues, no AI needed |
+| `sarif-verify` | No | Yes | Yes (`--sarif-file`) | External SARIF provides findings, AI validates each as true/false positive |
 
 ## Check Instructions (`<id>.md`)
 
