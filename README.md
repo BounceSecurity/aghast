@@ -18,11 +18,13 @@ Define static rules, security checks as markdown instructions, point AGHAST at a
 
 ## What AGHAST Does
 
-You can read the full background to this tool in our blogpost [here](https://bouncesecurity.com/aghast) but, to cut to the chase, AGHAST helps you run three types of checks:
+You can read the full background to this tool in our blogpost [here](https://bouncesecurity.com/aghast) but, to cut to the chase, AGHAST helps you run five types of checks:
 
 - Pure AI scanning rules - let the LLM do all the analysis
 - A combination of a static rule and an AI scanning rule - the sweet spot for most use cases
 - Purely static rules - for completeness, when a traditional static rule is all you need
+- SARIF verification - validate findings from external SAST tools using AI to filter false positives
+- OpenAnt unit analysis - analyze pre-extracted code units with call graph context using AI
 
 The beauty of the approach is what you *don't* need:
 
@@ -95,6 +97,7 @@ Results are structured JSON (or SARIF) with per-check status and detailed issues
 ## Documentation
 
 - [Getting Started](docs/getting-started.md) — installation, setup, and first scan
+- [Trying It Out](docs/trying-it-out.md) — example checks walkthrough and first scan guide
 - [Scanning](docs/scanning.md) — scan command options, environment variables, output formats
 - [Creating Checks](docs/creating-checks.md) — scaffolding new security checks
 - [Configuration Reference](docs/configuration.md) — check schemas, check types, runtime config

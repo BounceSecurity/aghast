@@ -149,8 +149,9 @@ Each check folder contains a JSON definition file with the check's metadata.
 | `instructionsFile`  | `string`                     | Yes*     | Markdown file with AI instructions (*not needed for semgrep-only, sarif-verify, or openant-units) |
 | `severity`         | `string`                      | No       | `critical`, `high`, `medium`, `low`, or `informational` |
 | `confidence`       | `string`                      | No       | `high`, `medium`, or `low` |
+| `model`            | `string`                      | No       | AI model override for this check (e.g. `claude-sonnet-4-20250514`). Takes precedence over CLI `--model` and runtime config |
 | `checkTarget`      | `object`                      | No       | Semgrep target configuration (omit for repository checks) |
-| `checkTarget.type` | `string`                      | Yes**    | `semgrep`, `semgrep-only`, `sarif-verify`, or `openant-units` (**required if `checkTarget` present) |
+| `checkTarget.type` | `string`                      | Yes**    | `repository`, `semgrep`, `semgrep-only`, `sarif-verify`, or `openant-units` (**required if `checkTarget` present) |
 | `checkTarget.rules`| `string` or `string[]`        | Yes***   | Semgrep rule file path(s) relative to check folder (***only for semgrep/semgrep-only) |
 | `checkTarget.maxTargets` | `number`               | No       | Limit number of targets/units to analyze |
 | `checkTarget.concurrency` | `number`              | No       | Max parallel AI analyses for multi-target (default: 5) |
