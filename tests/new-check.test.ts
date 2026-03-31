@@ -595,6 +595,7 @@ describe('new-check utility', () => {
         'Retry Test Check',     // Check name
         '',                     // Severity (optional, skip)
         '',                     // Confidence (optional, skip)
+        '',                     // Model (optional, skip)
         '',                     // Repositories (optional, skip)
         'Overview text',        // Check overview
         'Item A,Item B',        // Check items
@@ -703,5 +704,46 @@ describe('new-check utility', () => {
     const files = readdirSync(resolve(checksDir, 'aghast-test'));
     assert.ok(!files.includes('aghast-test.md'), 'sarif-verify should not generate .md file');
     assert.ok(files.includes('aghast-test.json'), 'Should still have .json');
+  });
+
+  // ─── OpenAnt units tests ──────────────────────────────────────────────
+
+  it('openant-units type creates correct checkTarget with no instructionsFile', async () => {
+    const result = await runNewCheck(allFlags({
+      '--check-type': 'openant-units',
+    }));
+
+    assert.equal(result.exitCode, 0, `CLI failed: ${result.stderr}`);
+
+    const checkDef = JSON.parse(await readFile(resolve(checksDir, 'aghast-test', 'aghast-test.json'), 'utf-8'));
+    assert.equal(checkDef.checkTarget.type, 'openant-units');
+    assert.equal(checkDef.instructionsFile, undefined, 'openant-units should not have instructionsFile');
+    assert.equal(checkDef.checkTarget.rules, undefined, 'openant-units should not have rules');
+  });
+
+  it('openant-units does not generate .md file', async () => {
+    const result = await runNewCheck(allFlags({
+      '--check-type': 'openant-units',
+    }));
+
+    assert.equal(result.exitCode, 0, `CLI failed: ${result.stderr}`);
+
+    const { readdirSync } = await import('node:fs');
+    const files = readdirSync(resolve(checksDir, 'aghast-test'));
+    assert.ok(!files.includes('aghast-test.md'), 'openant-units should not generate .md file');
+    assert.ok(files.includes('aghast-test.json'), 'Should still have .json');
+  });
+
+  it('openant-units includes maxTargets in checkTarget when provided', async () => {
+    const result = await runNewCheck(allFlags({
+      '--check-type': 'openant-units',
+      '--max-targets': '25',
+    }));
+
+    assert.equal(result.exitCode, 0, `CLI failed: ${result.stderr}`);
+
+    const checkDef = JSON.parse(await readFile(resolve(checksDir, 'aghast-test', 'aghast-test.json'), 'utf-8'));
+    assert.equal(checkDef.checkTarget.type, 'openant-units');
+    assert.equal(checkDef.checkTarget.maxTargets, 25);
   });
 });

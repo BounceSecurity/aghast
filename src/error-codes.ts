@@ -7,6 +7,7 @@
  *   E3xxx — AI provider
  *   E4xxx — Repository/target validation
  *   E5xxx — Semgrep
+ *   E6xxx — OpenAnt
  *   E9xxx — Internal/fatal
  */
 
@@ -43,6 +44,13 @@ export const ERROR_CODES = {
   // E5xxx — Semgrep
   E5001: ec('E5001', 'Semgrep not installed'),
   E5002: ec('E5002', 'Semgrep execution failed'),
+
+  // E6xxx — OpenAnt
+  E6001: ec('E6001', 'OpenAnt data source not specified'),
+  E6002: ec('E6002', 'OpenAnt dataset file not found'),
+  E6003: ec('E6003', 'OpenAnt dataset invalid'),
+  E6004: ec('E6004', 'OpenAnt project not found'),
+  E6005: ec('E6005', 'OpenAnt repository path not found'),
 
   // E9xxx — Internal
   E9001: ec('E9001', 'Fatal internal error'),

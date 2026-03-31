@@ -72,6 +72,21 @@ export async function loadRuntimeConfig(configDir: string, explicitPath?: string
   if (obj.failOnCheckFailure !== undefined && typeof obj.failOnCheckFailure !== 'boolean') {
     throw new Error(`Runtime config "${pathToLoad}": "failOnCheckFailure" must be a boolean`);
   }
+  if (obj.logging !== undefined) {
+    if (typeof obj.logging !== 'object' || obj.logging === null || Array.isArray(obj.logging)) {
+      throw new Error(`Runtime config "${pathToLoad}": "logging" must be an object`);
+    }
+    const log = obj.logging as Record<string, unknown>;
+    if (log.logFile !== undefined && typeof log.logFile !== 'string') {
+      throw new Error(`Runtime config "${pathToLoad}": "logging.logFile" must be a string`);
+    }
+    if (log.logType !== undefined && typeof log.logType !== 'string') {
+      throw new Error(`Runtime config "${pathToLoad}": "logging.logType" must be a string`);
+    }
+    if (log.level !== undefined && typeof log.level !== 'string') {
+      throw new Error(`Runtime config "${pathToLoad}": "logging.level" must be a string`);
+    }
+  }
 
   return parsed as RuntimeConfig;
 }

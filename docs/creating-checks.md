@@ -22,7 +22,7 @@ Scaffolds a new security check interactively. Any values not provided via flags 
 | `--config-dir <path>` | **(Required)** Config directory to create the check in |
 | `--id <id>` | Check ID (auto-prefixed with `aghast-` if needed) |
 | `--name <name>` | Human-readable check name |
-| `--check-type <type>` | `repository` (default), `semgrep`, `semgrep-only`, or `sarif-verify` |
+| `--check-type <type>` | `repository` (default), `semgrep`, `semgrep-only`, `sarif-verify`, or `openant-units` |
 | `--severity <level>` | `critical`, `high`, `medium`, `low`, or `informational` |
 | `--confidence <level>` | `high`, `medium`, or `low` |
 
@@ -32,10 +32,10 @@ Run `aghast new-check --help` for the full list of flags including `--check-over
 
 Running `new-check` creates a check folder in `<config-dir>/checks/<check-id>/` containing:
 
-- `<id>.json` — check definition (name, severity, type, Semgrep config)
-- `<id>.md` — markdown instructions for AI analysis (not created for semgrep-only or sarif-verify checks)
-- `<id>.yaml` — Semgrep rule file (for `semgrep` and `semgrep-only` check types)
-- `tests/` — Semgrep rule test files (for `semgrep` and `semgrep-only` check types)
+- `<id>.json` — check definition (name, severity, type, target config)
+- `<id>.md` — markdown instructions for AI analysis (not created for `semgrep-only`, `sarif-verify`, or `openant-units` checks)
+- `<id>.yaml` — Semgrep rule file (for `semgrep` and `semgrep-only` check types only)
+- `tests/` — Semgrep rule test files (for `semgrep` and `semgrep-only` check types only)
 
 The check is also registered in `checks-config.json`.
 

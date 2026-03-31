@@ -51,7 +51,7 @@ The [aghast-bounce-checks-public](https://github.com/BounceSecurity/aghast-bounc
 git clone https://github.com/BounceSecurity/aghast-bounce-checks-public.git
 ```
 
-The repo includes four example checks — one of each check type — with test codebases pre-configured in `checks-config.json`. Each example is described in detail below.
+The repo includes five example checks — one for each check type (`repository`, `semgrep`, `semgrep-only`, `sarif-verify`, and `openant-units`) — with test codebases pre-configured in `checks-config.json`. Each example is described in detail below.
 
 ### Example 1: Business Logic Bypass (`repository` type)
 
@@ -238,6 +238,48 @@ aghast scan ./aghast-bounce-checks-public/test-codebases/test-9-sast-false-posit
 ```
 
 **Expected result**: FAIL with ~3 issues — the AI should confirm the true positive findings (unescaped user input in HTML response, unvalidated redirect, user-supplied URL fetched without validation) and dismiss the false positives (autoescaped template output, allowlist-validated redirects, hardcoded internal URLs).
+
+---
+
+### Example 5: Various Security Vulnerabilities (`openant-units` type)
+
+**Check type**: `openant-units` — reads code units from an OpenAnt dataset and has the AI independently analyze each unit for security vulnerabilities.
+
+**What it does**: Analyzes individual functions extracted by [OpenAnt](https://github.com/knostic/OpenAnt) for a range of security issues including race conditions, broken access control, SSRF, SQL injection, mass assignment, and insecure randomness. The AI browses the live codebase to trace data flow and verify each finding.
+
+**Check definition** (`aghast-openant-various-vulns.json`):
+
+```json
+{
+  "id": "aghast-openant-various-vulns",
+  "name": "Various Security Vulnerabilities (OpenAnt Example)",
+  "severity": "high",
+  "confidence": "medium",
+  "model": "sonnet",
+  "checkTarget": {
+    "type": "openant-units",
+    "concurrency": 10
+  }
+}
+```
+
+With `checkTarget.type` set to `openant-units`, there is no instructions file — the AI uses the generic `openant-security-instructions.md` prompt. The `model` field overrides the default model for this check (sonnet provides more consistent results for complex security analysis). The `concurrency` field controls how many units are analyzed in parallel.
+
+The OpenAnt dataset (`dataset.json`) is pre-generated and included in the test codebase. It contains code units with call graph metadata (callers, callees, entry point status) but **not** OpenAnt's security classifications — the AI forms its own independent judgment from the code.
+
+**Test codebase**: `test-codebases/test-10-various-vulns/` — a Node.js Express inventory management API with a mix of vulnerable and safe code patterns. Vulnerable functions have safe counterparts nearby (e.g., a single order endpoint with a race condition alongside a bulk order endpoint with proper transaction locking).
+
+**Run it** (requires API key, no Semgrep needed):
+
+```bash
+aghast scan ./aghast-bounce-checks-public/test-codebases/test-10-various-vulns \
+  --config-dir ./aghast-bounce-checks-public \
+  --openant-dataset ./aghast-bounce-checks-public/test-codebases/test-10-various-vulns/dataset.json
+```
+
+**Expected result**: FAIL with ~8 issues — race condition in order creation, mass assignment allowing role escalation, insecure randomness in password reset tokens, SQL injection in custom report export, SSRF in custom export endpoint, SSRF via unvalidated webhook registration and test delivery, and broken object-level authorization in order retrieval.
+
+> **Note**: Because the AI independently analyzes each code unit, results may vary slightly between runs. The sonnet model provides the most consistent results.
 
 ---
 

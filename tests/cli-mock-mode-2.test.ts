@@ -21,6 +21,7 @@ import {
   semgrepOnlyConfigDir,
   mixedWithSemgrepOnlyConfigDir,
   sarifVerifyConfigDir,
+  perCheckModelConfigDir,
   cli3TargetsSarif,
   emptyResultsSarif,
   failFixtureRepo,
@@ -641,5 +642,49 @@ describe('CLI mock mode: sarif-verify checks', () => {
       assert.equal(issue.severity, 'high');
       assert.equal(issue.confidence, 'medium');
     }
+  });
+});
+
+// ─── Per-check model ─────────────────────────────────────────────────────────
+
+describe('CLI: per-check model override', () => {
+  afterEach(cleanupOutput);
+
+  it('logs per-check model message when check has model field', async () => {
+    const { stdout, stderr } = await runCLI(
+      { AGHAST_MOCK_AI: 'true' },
+      [fixtureRepo, '--config-dir', perCheckModelConfigDir],
+    );
+    const combined = stdout + stderr;
+    assert.ok(
+      combined.includes('per-check model'),
+      'Should log per-check model override message',
+    );
+  });
+
+  it('per-check model appears in results aiProvider.models', async () => {
+    await runCLI(
+      { AGHAST_MOCK_AI: 'true' },
+      [fixtureRepo, '--config-dir', perCheckModelConfigDir],
+    );
+
+    const results = await readResults();
+    const aiProvider = results.aiProvider as { name: string; models: string[] };
+    assert.ok(
+      aiProvider.models.includes('claude-sonnet-4-6'),
+      `models array should include the per-check model, got: ${JSON.stringify(aiProvider.models)}`,
+    );
+  });
+
+  it('check with model field still produces valid PASS result', async () => {
+    const { exitCode } = await runCLI(
+      { AGHAST_MOCK_AI: 'true' },
+      [fixtureRepo, '--config-dir', perCheckModelConfigDir],
+    );
+    assert.equal(exitCode, 0);
+
+    const results = await readResults();
+    const checks = results.checks as Array<Record<string, unknown>>;
+    assert.equal(checks[0].status, 'PASS');
   });
 });

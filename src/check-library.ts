@@ -15,6 +15,7 @@ import type {
   CheckRegistryEntry,
   CheckDefinition,
 } from './types.js';
+import { getCheckType, getValidCheckTypes } from './check-types.js';
 
 // --- Layer 1: Check Registry ---
 
@@ -131,6 +132,9 @@ export async function loadCheckDefinition(checkFolderPath: string): Promise<Chec
   if (obj.confidence !== undefined && typeof obj.confidence !== 'string') {
     throw new Error(`Check definition "${defPath}": "confidence" must be a string`);
   }
+  if (obj.model !== undefined && typeof obj.model !== 'string') {
+    throw new Error(`Check definition "${defPath}": "model" must be a string`);
+  }
   if (obj.applicablePaths !== undefined && !Array.isArray(obj.applicablePaths)) {
     throw new Error(`Check definition "${defPath}": "applicablePaths" must be an array`);
   }
@@ -142,7 +146,7 @@ export async function loadCheckDefinition(checkFolderPath: string): Promise<Chec
       throw new Error(`Check definition "${defPath}": "checkTarget" must be an object`);
     }
     const ct = obj.checkTarget as Record<string, unknown>;
-    const validTypes = ['semgrep', 'semgrep-only', 'repository', 'sarif-verify'];
+    const validTypes = getValidCheckTypes();
     if (typeof ct.type !== 'string' || !validTypes.includes(ct.type)) {
       throw new Error(`Check definition "${defPath}": "checkTarget.type" must be one of: ${validTypes.join(', ')}`);
     }
@@ -158,14 +162,39 @@ export async function loadCheckDefinition(checkFolderPath: string): Promise<Chec
     if (ct.concurrency !== undefined && (typeof ct.concurrency !== 'number' || ct.concurrency <= 0 || !Number.isInteger(ct.concurrency))) {
       throw new Error(`Check definition "${defPath}": "checkTarget.concurrency" must be a positive integer`);
     }
+    // Validate openant filter config
+    if (ct.openant !== undefined) {
+      if (typeof ct.openant !== 'object' || ct.openant === null) {
+        throw new Error(`Check definition "${defPath}": "checkTarget.openant" must be an object`);
+      }
+      const oa = ct.openant as Record<string, unknown>;
+      if (oa.unitTypes !== undefined && !Array.isArray(oa.unitTypes)) {
+        throw new Error(`Check definition "${defPath}": "checkTarget.openant.unitTypes" must be an array`);
+      }
+      if (oa.excludeUnitTypes !== undefined && !Array.isArray(oa.excludeUnitTypes)) {
+        throw new Error(`Check definition "${defPath}": "checkTarget.openant.excludeUnitTypes" must be an array`);
+      }
+      if (oa.securityClassifications !== undefined && !Array.isArray(oa.securityClassifications)) {
+        throw new Error(`Check definition "${defPath}": "checkTarget.openant.securityClassifications" must be an array`);
+      }
+      if (oa.reachableOnly !== undefined && typeof oa.reachableOnly !== 'boolean') {
+        throw new Error(`Check definition "${defPath}": "checkTarget.openant.reachableOnly" must be a boolean`);
+      }
+      if (oa.entryPointsOnly !== undefined && typeof oa.entryPointsOnly !== 'boolean') {
+        throw new Error(`Check definition "${defPath}": "checkTarget.openant.entryPointsOnly" must be a boolean`);
+      }
+      if (oa.minConfidence !== undefined && (typeof oa.minConfidence !== 'number' || oa.minConfidence < 0 || oa.minConfidence > 1)) {
+        throw new Error(`Check definition "${defPath}": "checkTarget.openant.minConfidence" must be a number between 0 and 1`);
+      }
+    }
   }
 
   const def = parsed as CheckDefinition;
 
-  // instructionsFile is required for all check types except semgrep-only
-  if (def.checkTarget?.type !== 'semgrep-only' && def.checkTarget?.type !== 'sarif-verify' && !def.instructionsFile) {
+  // instructionsFile is required only for check types where needsInstructions is true
+  if (getCheckType(def.checkTarget?.type).needsInstructions && !def.instructionsFile) {
     throw new Error(
-      `Check definition "${defPath}" is missing required field "instructionsFile" (required for non-semgrep-only/sarif-verify checks)`,
+      `Check definition "${defPath}" is missing required field "instructionsFile"`,
     );
   }
 
@@ -245,6 +274,7 @@ export async function resolveChecks(
 
     if (def.severity) merged.severity = def.severity;
     if (def.confidence) merged.confidence = def.confidence;
+    if (def.model) merged.model = def.model;
     if (def.applicablePaths) merged.applicablePaths = def.applicablePaths;
     if (def.excludedPaths) merged.excludedPaths = def.excludedPaths;
 
@@ -336,9 +366,8 @@ export async function validateCheck(
     errors.push('Check is missing a valid "id" field');
   }
 
-  // semgrep-only and sarif-verify checks don't need an instructionsFile
-  if (check.checkTarget?.type === 'semgrep-only' || check.checkTarget?.type === 'sarif-verify') {
-    // No instructionsFile validation needed
+  if (!getCheckType(check.checkTarget?.type).needsInstructions) {
+    // No instructionsFile validation needed for this check type
   } else if (!check.instructionsFile) {
     errors.push('Check is missing required "instructionsFile" field');
   } else {

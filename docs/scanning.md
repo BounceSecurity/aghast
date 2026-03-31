@@ -21,11 +21,16 @@ aghast scan <repo-path> --config-dir <path> [options]
 | `--output <path>` | Output file path (default: `<repo-path>/security_checks_results.<ext>`) |
 | `--output-format json\|sarif` | Output format (default: `json`) |
 | `--fail-on-check-failure` | Exit with code 1 if any check FAILs or ERRORs |
-| `--debug` | Enable verbose debug output |
+| `--debug` | Shorthand for `--log-level debug` |
+| `--log-level <level>` | Console log level: `error`, `warn`, `info`, `debug`, `trace` (default: `info`) |
+| `--log-file <path>` | Write all log output to a file (captures at `trace` level by default) |
+| `--log-type <type>` | Log file handler type (default: `file`). Pluggable — new types can be added |
 | `--model <model>` | AI model override (e.g. `claude-sonnet-4-20250514`) |
 | `--ai-provider <name>` | AI provider name (default: `claude-code`) |
 | `--generic-prompt <file>` | Generic prompt template filename |
-| `--sarif-file <path>` | Path to SARIF file for `sarif-verify` checks |
+| `--sarif-file <path>` | Path to SARIF file for `sarif-verify` checks. Cannot be combined with `--openant-*` flags |
+| `--openant-project <name>` | OpenAnt project name (from `~/.openant/projects/`) for `openant-units` checks. When used, `<repo-path>` is optional |
+| `--openant-dataset <path>` | Path to an OpenAnt base dataset (`dataset.json`) for `openant-units` checks. Deliberately uses the base dataset. Cannot be combined with `--openant-project` |
 | `--runtime-config <path>` | Path to runtime config file. Useful for setting persistent defaults instead of repeating CLI flags |
 
 Run `aghast scan --help` for the full list of options.
@@ -39,6 +44,9 @@ Run `aghast scan --help` for the full list of options.
 | `AGHAST_AI_MODEL` | AI model override (CLI `--model` takes precedence) |
 | `AGHAST_GENERIC_PROMPT` | Generic prompt template filename (CLI `--generic-prompt` takes precedence) |
 | `AGHAST_DEBUG` | Set to `true` to enable debug output (same as `--debug`) |
+| `AGHAST_LOG_LEVEL` | Console log level (CLI `--log-level` takes precedence) |
+| `AGHAST_LOG_FILE` | Log file path (CLI `--log-file` takes precedence) |
+| `AGHAST_LOG_TYPE` | Log file handler type (CLI `--log-type` takes precedence) |
 | `NO_COLOR` | Set to `1` to disable colored CLI output ([standard](https://no-color.org/)) |
 
 ## Runtime Configuration
@@ -56,7 +64,7 @@ Results are written to `security_checks_results.<ext>` in the target repo by def
 
 ## Check Types
 
-aghast supports four types of security checks:
+aghast supports five types of security checks:
 
 | Type | Semgrep? | AI? | Description |
 |------|----------|-----|-------------|
@@ -64,6 +72,7 @@ aghast supports four types of security checks:
 | `semgrep` | Yes | Yes | Semgrep discovers specific code locations, AI analyzes each one |
 | `semgrep-only` | Yes | No | Semgrep findings are mapped directly to issues (no AI needed, no API key needed) |
 | `sarif-verify` | No | Yes | External SARIF file provides findings, AI validates each as true/false positive (use `--sarif-file`) |
+| `openant-units` | No | Yes | OpenAnt base dataset provides code units with call graph context, AI independently analyzes each (use `--openant-dataset` or `--openant-project`). Use base `dataset.json`, (not enhanced) |
 
 See the [Configuration Reference](configuration.md) for check definition schemas and result statuses.
 

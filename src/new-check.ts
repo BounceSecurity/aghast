@@ -16,6 +16,7 @@ import { createInterface } from 'node:readline/promises';
 import { stdin, stdout } from 'node:process';
 import { createRequire } from 'node:module';
 import { ERROR_CODES, formatError, formatFatalError } from './error-codes.js';
+import { getCheckType, getValidCheckTypes } from './check-types.js';
 
 const ID_PREFIX = 'aghast-';
 
@@ -46,6 +47,7 @@ interface ParsedFlags {
   name?: string;
   severity?: string;
   confidence?: string;
+  model?: string;
   repositories?: string;
   checkOverview?: string;
   checkItems?: string;
@@ -64,6 +66,7 @@ const CLI_FLAG_MAP: Record<string, keyof ParsedFlags> = {
   '--name': 'name',
   '--severity': 'severity',
   '--confidence': 'confidence',
+  '--model': 'model',
   '--repositories': 'repositories',
   '--check-overview': 'checkOverview',
   '--check-items': 'checkItems',
@@ -144,13 +147,14 @@ async function promptForMissing(flags: ParsedFlags): Promise<Required<Omit<Parse
     name: await ask('Check name (e.g. XSS Prevention)', flags.name),
     severity: await askOptional('Severity (critical/high/medium/low/informational)', flags.severity),
     confidence: await askOptional('Confidence (high/medium/low)', flags.confidence),
+    model: flags.model !== undefined ? flags.model : await askOptional('AI model override (e.g. claude-sonnet-4-6)', undefined),
     repositories: flags.repositories !== undefined ? flags.repositories : await askOptional('Repositories (comma-separated URLs, or empty for all)', undefined),
     checkOverview: await ask('Check overview / description', flags.checkOverview),
     checkItems: await ask('Check items (comma-separated)', flags.checkItems),
     passCondition: await ask('PASS condition', flags.passCondition),
     failCondition: await ask('FAIL condition', flags.failCondition),
     flagCondition: await askOptional('FLAG condition (requires human investigation)', flags.flagCondition),
-    checkType: await askWithDefault('Check type (repository/semgrep/semgrep-only/sarif-verify)', 'repository', flags.checkType),
+    checkType: await askWithDefault(`Check type (${getValidCheckTypes().join('/')})`, 'repository', flags.checkType),
     semgrepRules: '',
     maxTargets: '',
     language: '',
@@ -169,6 +173,8 @@ async function promptForMissing(flags: ParsedFlags): Promise<Required<Omit<Parse
     }
   } else if (result.checkType === 'sarif-verify') {
     result.maxTargets = await askOptional('Max targets', flags.maxTargets);
+  } else if (result.checkType === 'openant-units') {
+    result.maxTargets = await askOptional('Max targets (units)', flags.maxTargets);
   }
 
   if (rl) rl.close();
@@ -217,9 +223,9 @@ function validateInputs(
     errors.push(`Invalid confidence "${inputs.confidence}". Must be one of: ${validConfidences.join(', ')}`);
   }
 
-  const validCheckTypes = ['repository', 'semgrep', 'semgrep-only', 'sarif-verify', ''];
-  if (!validCheckTypes.includes(inputs.checkType)) {
-    errors.push(`Invalid check type "${inputs.checkType}". Must be one of: repository, semgrep, semgrep-only, sarif-verify`);
+  const validCheckTypes = getValidCheckTypes();
+  if (inputs.checkType && !validCheckTypes.includes(inputs.checkType)) {
+    errors.push(`Invalid check type "${inputs.checkType}". Must be one of: ${validCheckTypes.join(', ')}`);
   }
 
   if (inputs.maxTargets) {
@@ -313,6 +319,7 @@ function generateCheckDefinition(inputs: {
   name: string;
   severity: string;
   confidence: string;
+  model: string;
   checkType: string;
   semgrepRules: string;
   maxTargets: string;
@@ -322,8 +329,8 @@ function generateCheckDefinition(inputs: {
     name: inputs.name,
   };
 
-  // semgrep-only and sarif-verify checks don't require an instructionsFile
-  if (inputs.checkType !== 'semgrep-only' && inputs.checkType !== 'sarif-verify') {
+  // Only check types that need instructions get an instructionsFile
+  if (getCheckType(inputs.checkType).needsInstructions) {
     def.instructionsFile = `${inputs.id}.md`;
   }
 
@@ -332,6 +339,9 @@ function generateCheckDefinition(inputs: {
   }
   if (inputs.confidence) {
     def.confidence = inputs.confidence;
+  }
+  if (inputs.model) {
+    def.model = inputs.model;
   }
 
   if (inputs.checkType === 'semgrep' || inputs.checkType === 'semgrep-only') {
@@ -348,6 +358,12 @@ function generateCheckDefinition(inputs: {
     def.checkTarget = checkTarget;
   } else if (inputs.checkType === 'sarif-verify') {
     const checkTarget: Record<string, unknown> = { type: 'sarif-verify' };
+    if (inputs.maxTargets) {
+      checkTarget.maxTargets = parseInt(inputs.maxTargets, 10);
+    }
+    def.checkTarget = checkTarget;
+  } else if (inputs.checkType === 'openant-units') {
+    const checkTarget: Record<string, unknown> = { type: 'openant-units' };
     if (inputs.maxTargets) {
       checkTarget.maxTargets = parseInt(inputs.maxTargets, 10);
     }
@@ -386,13 +402,14 @@ Options:
   --name <name>              Human-readable check name (e.g. "XSS Prevention")
   --severity <level>         Severity: critical, high, medium, low, informational
   --confidence <level>       Confidence: high, medium, low
+  --model <model>            AI model override for this check (e.g. claude-sonnet-4-6)
   --repositories <urls>      Comma-separated repository URLs (empty = all repos)
   --check-overview <text>    Description of what this check does
   --check-items <items>      Comma-separated list of things to check
   --pass-condition <text>    Condition for a PASS result
   --fail-condition <text>    Condition for a FAIL result
   --flag-condition <text>    Condition for a FLAG result (optional)
-  --check-type <type>        Check type: repository (default), semgrep, semgrep-only, sarif-verify
+  --check-type <type>        Check type (default: repository). See 'Check types' below
   --semgrep-rules <paths>    Comma-separated Semgrep rule file paths
   --max-targets <n>          Maximum number of Semgrep targets to analyze
   --language <lang>          Language for Semgrep template: python, javascript, typescript
@@ -406,6 +423,7 @@ Check types:
   semgrep        Semgrep finds targets, AI analyzes each one
   semgrep-only   Semgrep findings mapped directly to issues (no AI)
   sarif-verify   External SARIF provides findings, AI validates each one
+  openant-units  OpenAnt finds units, AI analyzes each one
 
 Examples:
   aghast new-check --config-dir ./my-checks
@@ -469,8 +487,8 @@ export async function runNewCheck(args: string[]): Promise<void> {
   await writeFile(resolve(checkFolder, `${inputs.id}.json`), JSON.stringify(checkDef, null, 2) + '\n', 'utf-8');
   console.log(`Created: ${checkFolder}/${inputs.id}.json`);
 
-  // Generate and write instructions.md (skipped for semgrep-only and sarif-verify)
-  if (inputs.checkType !== 'semgrep-only' && inputs.checkType !== 'sarif-verify') {
+  // Generate and write instructions.md (only for check types that require it)
+  if (getCheckType(inputs.checkType).needsInstructions) {
     const markdown = generateMarkdown(inputs);
     await writeFile(resolve(checkFolder, `${inputs.id}.md`), markdown, 'utf-8');
     console.log(`Created: ${checkFolder}/${inputs.id}.md`);

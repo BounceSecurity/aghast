@@ -23,9 +23,9 @@ Five core components orchestrated by the Security Scanner:
 4. **Repository Analyzer** — Extracts Git metadata (remote URL, branch, commit) from target repos
 5. **Report Generator** — Produces `security_checks_results.json` (or `.sarif`) conforming to the `ScanResults` schema
 
-**Scan workflow**: User initiates → repo metadata extracted → checks filtered for repo → for each check: load instructions (if applicable), discover targets (Semgrep for multi-target/semgrep-only, or read SARIF for sarif-verify), AI analyzes (or map findings directly for semgrep-only), results parsed → aggregate → JSON report → exit code.
+**Scan workflow**: User initiates → repo metadata extracted → checks filtered for repo → for each check: load instructions (if applicable), discover targets (Semgrep for multi-target/semgrep-only, read SARIF for sarif-verify, or load OpenAnt units for openant-units), AI analyzes (or map findings directly for semgrep-only), results parsed → aggregate → JSON report → exit code.
 
-**Check types**: Repository-wide (AI analyzes whole repo), multi-target (Semgrep discovers specific code locations, AI analyzes each independently), semgrep-only (Semgrep findings mapped directly to issues, no AI involvement), or sarif-verify (external SARIF file provides findings, AI validates each as true/false positive).
+**Check types**: Repository-wide (AI analyzes whole repo), multi-target (Semgrep discovers specific code locations, AI analyzes each independently), semgrep-only (Semgrep findings mapped directly to issues, no AI involvement), sarif-verify (external SARIF file provides findings, AI validates each as true/false positive), or openant-units (OpenAnt base dataset provides code units with call graph context, AI independently analyzes each).
 
 ## Key Data Flow
 
@@ -65,7 +65,7 @@ The unified entry point is `src/cli.ts` which routes to `runScan()` (from `src/i
 - `pnpm build` — Compile TypeScript
 - `pnpm lint` — Run ESLint on src/ and tests/
 - `pnpm lint:fix` — Run ESLint with auto-fix on src/ and tests/
-- `pnpm scan -- <repo-path> --config-dir <path> [--output <path>] [--output-format json|sarif] [--fail-on-check-failure] [--debug] [--model <model>] [--ai-provider <name>] [--generic-prompt <file>] [--runtime-config <path>] [--sarif-file <path>]` — Run checks (`--config-dir` required, default format: `json`, default output: `<repo-path>/security_checks_results.<ext>`, exit 1 on FAIL/ERROR with `--fail-on-check-failure`, `--debug` enables verbose output, `--sarif-file` provides SARIF input for sarif-verify checks). Precedence: CLI flags > env vars > runtime config > defaults.
+- `pnpm scan -- <repo-path> --config-dir <path> [--output <path>] [--output-format json|sarif] [--fail-on-check-failure] [--debug] [--log-level <level>] [--log-file <path>] [--log-type <type>] [--model <model>] [--ai-provider <name>] [--generic-prompt <file>] [--runtime-config <path>] [--sarif-file <path>] [--openant-project <name>] [--openant-dataset <path>]` — Run checks (`--config-dir` required, default format: `json`, default output: `<repo-path>/security_checks_results.<ext>`, exit 1 on FAIL/ERROR with `--fail-on-check-failure`, `--debug` is shorthand for `--log-level debug`, `--log-file` writes all logs to a file at trace level, `--sarif-file` provides SARIF input for sarif-verify checks, `--openant-project` or `--openant-dataset` provides units for openant-units checks). `--sarif-file` and `--openant-*` flags are mutually exclusive. `<repo-path>` is optional when `--openant-project` is used. Precedence: CLI flags > env vars > runtime config > defaults.
 - `pnpm new-check -- --config-dir <path> [--id <id> --name <name> ...]` — Interactive CLI to scaffold a new check (creates check folder with `<id>.json`, `<id>.md`, optional `<id>.yaml` Semgrep rule + tests; appends to `checks-config.json`). Bootstraps config directory if it doesn't exist.
 
 ## Check Definitions (External)
@@ -89,7 +89,10 @@ pnpm scan -- /path/to/target --config-dir checks-config
 - `AGHAST_CONFIG_DIR` — Default config directory (CLI `--config-dir` takes precedence)
 - `AGHAST_AI_MODEL` — AI model override (CLI `--model` takes precedence)
 - `AGHAST_GENERIC_PROMPT` — Generic prompt template filename (CLI `--generic-prompt` takes precedence)
-- `AGHAST_DEBUG` — Set to `true` to enable debug output (same as `--debug`)
+- `AGHAST_DEBUG` — Set to `true` to enable debug output (shorthand for `AGHAST_LOG_LEVEL=debug`)
+- `AGHAST_LOG_LEVEL` — Console log level: `error`, `warn`, `info`, `debug`, `trace` (CLI `--log-level` takes precedence)
+- `AGHAST_LOG_FILE` — Log file path (CLI `--log-file` takes precedence)
+- `AGHAST_LOG_TYPE` — Log file handler type (CLI `--log-type` takes precedence, default: `file`)
 - `AGHAST_LOCAL_CLAUDE` — Set to `true` to use local Claude instead of API
 - `AGHAST_MOCK_AI` — Enables mock AI provider. Set to `true` for default `{"issues":[]}` response, or set to a file path
 - `AGHAST_MOCK_SEMGREP` — Path to SARIF file for mock Semgrep output
@@ -112,13 +115,15 @@ Precedence: CLI flags > environment variables > runtime config > built-in defaul
 - `src/snippet-extractor.ts` — Code snippet extractor (extracts lines from source files for issue enrichment)
 - `src/sarif-parser.ts` — SARIF 2.1.0 parser for Semgrep output (`parseSARIF`, `deduplicateTargets`, `limitTargets`)
 - `src/semgrep-runner.ts` — Semgrep execution with mock support (`runSemgrep`, `buildSemgrepArgs`)
+- `src/openant-loader.ts` — OpenAnt dataset loading, project discovery, unit filtering, and prompt formatting. Uses base datasets (`dataset.json`) not enhanced — the AI forms its own security judgment
+- `src/check-types.ts` — Check type descriptor system; each check type declares its characteristics (needsAI, needsSemgrep, needsInstructions, etc.) in one place
 - `src/check-library.ts` — Check Library: two-layer config loading (`loadCheckRegistry`, `loadCheckDefinition`, `discoverCheckFolders`, `resolveChecks`), validation, repository matching, markdown parsing, path filtering
 - `src/repository-analyzer.ts` — Git metadata extraction (remote URL, branch, commit)
 - `src/response-parser.ts` — AI response JSON parser
 - `src/types.ts` — Shared type definitions (ScanResults, RepositoryInfo, SecurityIssue, etc.); includes `RuntimeConfig`
 - `src/error-codes.ts` — Trackable error codes and formatting helpers (`formatError`, `formatFatalError`)
 - `src/colors.ts` — Color helpers for CLI output (wraps `picocolors`, respects `NO_COLOR`)
-- `src/logging.ts` — Logging utilities
+- `src/logging.ts` — Pluggable logging system with standard levels (`error`, `warn`, `info`, `debug`, `trace`), `LogHandler` interface, `ConsoleHandler`, `FileHandler`, handler registry
 - `src/runtime-config.ts` — Runtime configuration loader (`loadRuntimeConfig`); supports `--runtime-config` CLI flag
 - `src/new-check.ts` — Check scaffolding CLI utility (exports `runNewCheck(args)`); bootstraps config directory
 - `src/formatters/index.ts` — Formatter registry

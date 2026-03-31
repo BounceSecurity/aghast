@@ -15,6 +15,8 @@ import { analyzeRepository } from './repository-analyzer.js';
 import { runSemgrep } from './semgrep-runner.js';
 import { parseSARIF, deduplicateTargets, limitTargets } from './sarif-parser.js';
 import { logProgress, logDebug, createTimer } from './logging.js';
+import { loadDatasetFromFile, discoverDataset, filterUnits, formatUnitPromptSection } from './openant-loader.js';
+import { CHECK_TYPE } from './check-types.js';
 import {
   DEFAULT_AI_MODEL,
   FatalProviderError,
@@ -109,6 +111,11 @@ async function mapWithConcurrency<T, R>(
   return results;
 }
 
+export interface OpenAntOptions {
+  projectName?: string;
+  datasetPath?: string;
+}
+
 export interface MultiScanOptions {
   repositoryPath: string;
   checks: Array<{ check: SecurityCheck; details: CheckDetails }>;
@@ -120,6 +127,7 @@ export interface MultiScanOptions {
   configDir?: string;
   genericPrompt?: string;
   sarifFile?: string;
+  openant?: OpenAntOptions;
 }
 
 /**
@@ -184,6 +192,34 @@ async function enrichIssue(
 }
 
 /**
+ * If the check specifies a per-check model, switch the provider to that model
+ * and return the previous model name so it can be restored after execution.
+ */
+function applyPerCheckModel(
+  check: SecurityCheck,
+  aiProvider: AIProvider | undefined,
+  globalModelName: string | undefined,
+): string | undefined {
+  if (!check.model || !aiProvider?.setModel) return undefined;
+  const previousModel = aiProvider.getModelName?.() ?? globalModelName;
+  aiProvider.setModel(check.model);
+  logProgress(TAG, `Using per-check model: ${check.model} (check: ${check.id})`);
+  return previousModel;
+}
+
+/**
+ * Restore the provider's model to the previous value after per-check override.
+ */
+function restoreModel(
+  aiProvider: AIProvider | undefined,
+  previousModel: string | undefined,
+): void {
+  if (previousModel !== undefined && aiProvider?.setModel) {
+    aiProvider.setModel(previousModel);
+  }
+}
+
+/**
  * Execute a single check against a repository via the AI provider.
  * Routes to multi-target execution if checkTarget is configured.
  * Handles prompt building, AI call, response parsing, issue enrichment.
@@ -199,11 +235,12 @@ async function executeSingleCheck(
   configDir?: string,
   genericPrompt?: string,
   sarifFile?: string,
+  openant?: OpenAntOptions,
 ): Promise<CheckExecutionResult> {
   const checkId = check.id;
 
   // Route to multi-target execution if configured
-  if (check.checkTarget?.type === 'semgrep') {
+  if (check.checkTarget?.type === CHECK_TYPE.SEMGREP) {
     if (!aiProvider) {
       throw new Error(`Check "${checkId}" requires an AI provider but none was configured`);
     }
@@ -221,12 +258,12 @@ async function executeSingleCheck(
   }
 
   // Route to semgrep-only execution (no AI)
-  if (check.checkTarget?.type === 'semgrep-only') {
+  if (check.checkTarget?.type === CHECK_TYPE.SEMGREP_ONLY) {
     return executeSemgrepOnlyCheck(check, checkName, repositoryPath, checkMetadata);
   }
 
   // Route to SARIF verification (external SARIF + AI validation)
-  if (check.checkTarget?.type === 'sarif-verify') {
+  if (check.checkTarget?.type === CHECK_TYPE.SARIF_VERIFY) {
     if (!aiProvider) {
       throw new Error(`Check "${checkId}" requires an AI provider but none was configured`);
     }
@@ -255,6 +292,25 @@ async function executeSingleCheck(
       checkMetadata,
       concurrency,
       configDir,
+    );
+  }
+
+  // Route to OpenAnt unit analysis
+  if (check.checkTarget?.type === CHECK_TYPE.OPENANT_UNITS) {
+    if (!aiProvider) {
+      throw new Error(`Check "${checkId}" requires an AI provider but none was configured`);
+    }
+    return executeOpenantCheck(
+      check,
+      checkName,
+      checkInstructions,
+      repositoryPath,
+      aiProvider,
+      checkMetadata,
+      concurrency,
+      configDir,
+      genericPrompt,
+      openant,
     );
   }
 
@@ -827,10 +883,205 @@ You MUST:
 }
 
 /**
+ * Execute an OpenAnt check: load units from dataset, AI analyzes each.
+ */
+async function executeOpenantCheck(
+  check: SecurityCheck,
+  checkName: string,
+  checkInstructions: string,
+  repositoryPath: string,
+  aiProvider: AIProvider,
+  checkMetadata?: { severity?: string; confidence?: string },
+  optionsConcurrency?: number,
+  configDir?: string,
+  genericPrompt?: string,
+  openant?: OpenAntOptions,
+): Promise<CheckExecutionResult> {
+  const checkId = check.id;
+  const checkTarget = check.checkTarget!;
+
+  logProgress(TAG, `Running openant-units check: ${checkName}`);
+  const checkTimer = createTimer();
+
+  try {
+    // 1. Resolve dataset source
+    if (!openant?.datasetPath && !openant?.projectName) {
+      const errorMsg = `Check "${checkId}" is an openant-units check but no --openant-project or --openant-dataset was provided`;
+      logProgress(TAG, `Result: ERROR (${errorMsg})`);
+      return {
+        summary: {
+          checkId,
+          checkName,
+          status: 'ERROR',
+          issuesFound: 0,
+          executionTime: 0,
+          error: errorMsg,
+        },
+        issues: [],
+      };
+    }
+
+    let datasetPath: string;
+    let effectiveRepoPath = repositoryPath;
+
+    if (openant.datasetPath) {
+      datasetPath = openant.datasetPath;
+    } else {
+      const discovered = await discoverDataset(openant.projectName!);
+      datasetPath = discovered.datasetPath;
+      // Use project's repo_path if no explicit repo path was provided
+      if (!repositoryPath) {
+        effectiveRepoPath = discovered.project.repo_path;
+      }
+    }
+
+    // 2. Load and filter units
+    const dataset = await loadDatasetFromFile(datasetPath);
+    const totalUnits = dataset.units.length;
+    let units = filterUnits(dataset.units, checkTarget.openant);
+
+    logProgress(TAG, `Loaded ${totalUnits} units (${units.length} after filtering)`);
+
+    // 3. Apply maxTargets limit
+    if (checkTarget.maxTargets !== undefined && units.length > checkTarget.maxTargets) {
+      units = units.slice(0, checkTarget.maxTargets);
+      logProgress(TAG, `Limited to ${units.length} units (maxTargets: ${checkTarget.maxTargets})`);
+    }
+
+    // 4. If no units, return PASS
+    if (units.length === 0) {
+      logProgress(TAG, 'Result: PASS (no units to analyze)');
+      return {
+        summary: {
+          checkId,
+          checkName,
+          status: 'PASS',
+          issuesFound: 0,
+          executionTime: checkTimer.elapsed(),
+          targetsAnalyzed: 0,
+        },
+        issues: [],
+      };
+    }
+
+    // 5. Resolve effective concurrency
+    const effectiveConcurrency =
+      checkTarget.concurrency ?? optionsConcurrency ?? DEFAULT_CONCURRENCY;
+
+    logProgress(TAG, `Analyzing ${units.length} units (concurrency: ${effectiveConcurrency})`);
+
+    // 6. Build base prompt using openant-specific generic prompt
+    const basePrompt = await buildPrompt(checkInstructions, configDir, genericPrompt ?? 'openant-security-instructions.md');
+    let completedCount = 0;
+    const abortHandle: AbortHandle = { aborted: false };
+
+    // 7. Analyze units concurrently
+    const unitResults = await mapWithConcurrency(
+      units,
+      effectiveConcurrency,
+      async (unit, idx) => {
+        const label = `[unit ${idx + 1}/${units.length}]`;
+        try {
+          const prompt = basePrompt + formatUnitPromptSection(unit);
+
+          logDebug(TAG, `${label} Analyzing unit: ${unit.code.primary_origin.file_path}:${unit.code.primary_origin.function_name}`);
+          const aiResponse = await aiProvider.executeCheck(prompt, effectiveRepoPath, label, { maxTurns: 20 });
+
+          const parsed = aiResponse.parsed ?? parseAIResponse(aiResponse.raw);
+
+          if (!parsed) {
+            logDebug(TAG, `${label} Unit returned malformed response`);
+            return { issues: [] as SecurityIssue[], error: true, flagged: false, tokenUsage: aiResponse.tokenUsage };
+          }
+
+          const issues = await Promise.all(
+            parsed.issues.map((aiIssue) =>
+              enrichIssue(aiIssue, checkId, checkName, effectiveRepoPath, checkMetadata),
+            ),
+          );
+          return { issues, error: false, flagged: parsed.flagged === true, tokenUsage: aiResponse.tokenUsage };
+        } catch (err) {
+          if (err instanceof FatalProviderError) {
+            abortHandle.aborted = true;
+            abortHandle.reason = err;
+            throw err;
+          }
+          const errorMsg = err instanceof Error ? err.message : String(err);
+          logDebug(TAG, `${label} Unit error: ${errorMsg}`);
+          return { issues: [] as SecurityIssue[], error: true, flagged: false, tokenUsage: undefined };
+        } finally {
+          completedCount++;
+          logProgress(TAG, `Progress: ${completedCount}/${units.length} units analyzed`);
+        }
+      },
+      abortHandle,
+    );
+
+    // 8. Aggregate results
+    const allIssues: SecurityIssue[] = [];
+    let hasErrors = false;
+    let hasFlagged = false;
+    const unitTokenUsages: (TokenUsage | undefined)[] = [];
+    for (const result of unitResults) {
+      allIssues.push(...result.issues);
+      if (result.error) hasErrors = true;
+      if (result.flagged) hasFlagged = true;
+      unitTokenUsages.push(result.tokenUsage);
+    }
+
+    // 9. Determine status: FAIL > FLAG > ERROR > PASS
+    const executionTime = checkTimer.elapsed();
+    let status: 'PASS' | 'FAIL' | 'FLAG' | 'ERROR';
+    if (allIssues.length > 0) {
+      status = 'FAIL';
+    } else if (hasFlagged) {
+      status = 'FLAG';
+    } else if (hasErrors) {
+      status = 'ERROR';
+    } else {
+      status = 'PASS';
+    }
+
+    logProgress(TAG, `Result: ${status} (${allIssues.length} issues, ${units.length} units analyzed)`);
+
+    return {
+      summary: {
+        checkId,
+        checkName,
+        status,
+        issuesFound: allIssues.length,
+        executionTime,
+        targetsAnalyzed: units.length,
+        tokenUsage: sumTokenUsage(unitTokenUsages),
+      },
+      issues: allIssues,
+    };
+  } catch (err) {
+    if (err instanceof FatalProviderError) {
+      throw err;
+    }
+    const executionTime = checkTimer.elapsed();
+    const errorMsg = err instanceof Error ? err.message : String(err);
+    logProgress(TAG, `Result: ERROR (${errorMsg})`);
+    return {
+      summary: {
+        checkId,
+        checkName,
+        status: 'ERROR',
+        issuesFound: 0,
+        executionTime,
+        error: errorMsg,
+      },
+      issues: [],
+    };
+  }
+}
+
+/**
  * Run multiple security checks and return aggregated ScanResults.
  */
 export async function runMultiScan(options: MultiScanOptions): Promise<ScanResults> {
-  const { repositoryPath, checks, aiProvider, aiModelName, aiProviderName, concurrency, configDir, genericPrompt, sarifFile } = options;
+  const { repositoryPath, checks, aiProvider, aiModelName, aiProviderName, concurrency, configDir, genericPrompt, sarifFile, openant } = options;
   const scanTimer = createTimer();
   const scanId = generateScanId();
   const startTime = new Date();
@@ -851,6 +1102,10 @@ export async function runMultiScan(options: MultiScanOptions): Promise<ScanResul
   const allCheckSummaries: CheckExecutionSummary[] = [];
   const allIssues: SecurityIssue[] = [];
 
+  // Track all models used during the scan
+  const modelsUsed = new Set<string>();
+  if (aiModelName) modelsUsed.add(aiModelName);
+
   // Execute checks sequentially
   for (let ci = 0; ci < checks.length; ci++) {
     const { check, details } = checks[ci];
@@ -858,6 +1113,10 @@ export async function runMultiScan(options: MultiScanOptions): Promise<ScanResul
       severity: check.severity,
       confidence: check.confidence,
     };
+
+    // Apply per-check model override if specified
+    const previousModel = applyPerCheckModel(check, aiProvider, aiModelName);
+    if (check.model) modelsUsed.add(check.model);
 
     try {
       const { summary: checkSummary, issues } = await executeSingleCheck(
@@ -871,6 +1130,7 @@ export async function runMultiScan(options: MultiScanOptions): Promise<ScanResul
         configDir,
         genericPrompt,
         sarifFile,
+        openant,
       );
 
       allCheckSummaries.push(checkSummary);
@@ -906,6 +1166,9 @@ export async function runMultiScan(options: MultiScanOptions): Promise<ScanResul
       // Non-fatal errors should not reach here (executeSingleCheck catches them),
       // but handle gracefully just in case.
       throw err;
+    } finally {
+      // Restore the global model after per-check override
+      restoreModel(aiProvider, previousModel);
     }
   }
 
@@ -938,7 +1201,7 @@ export async function runMultiScan(options: MultiScanOptions): Promise<ScanResul
     startTime: startTime.toISOString(),
     endTime: endTime.toISOString(),
     aiProvider: aiProvider
-      ? { name: aiProviderName ?? 'claude-code', models: aiModelName ? [aiModelName] : [DEFAULT_AI_MODEL] }
+      ? { name: aiProviderName ?? 'claude-code', models: modelsUsed.size > 0 ? [...modelsUsed] : [DEFAULT_AI_MODEL] }
       : { name: 'none', models: [] },
     tokenUsage: aggregateTokenUsage,
   };

@@ -1,0 +1,10 @@
+{
+  "id": "aghast-openant-test",
+  "name": "OpenAnt Security Test",
+  "severity": "high",
+  "confidence": "medium",
+  "checkTarget": {
+    "type": "openant-units",
+    "maxTargets": 50
+  }
+}

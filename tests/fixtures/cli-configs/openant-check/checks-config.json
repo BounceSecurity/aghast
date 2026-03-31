@@ -1,0 +1,9 @@
+{
+  "checks": [
+    {
+      "id": "aghast-openant-test",
+      "repositories": [],
+      "enabled": true
+    }
+  ]
+}
