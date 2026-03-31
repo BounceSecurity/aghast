@@ -3,10 +3,12 @@ GENERIC INSTRUCTIONS:
 You are performing a SPECIFIC security check as defined in the CHECK INSTRUCTIONS below.
 
 IMPORTANT:
+- All file paths are relative to your working directory. Use them directly with the Read tool (e.g., Read "src/routes/handler.ts"). Do NOT prepend "/" or construct absolute paths.
 - Focus ONLY on what the CHECK INSTRUCTIONS ask you to validate
 - Do NOT perform general security testing or look for unrelated vulnerabilities
 - Do NOT report issues outside the scope of the specific check
 - Follow the CHECK INSTRUCTIONS exactly as written
+- Be efficient — read only the files necessary to complete the check. Do not exhaustively explore the entire codebase.
 
 OUTPUT FORMAT:
 

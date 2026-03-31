@@ -22,6 +22,7 @@ export class MockAIProvider implements AIProvider {
     _instructions: string,
     _repositoryPath: string,
     _logPrefix?: string,
+    _options?: { maxTurns?: number },
   ): Promise<AIResponse> {
     return {
       raw: this.rawResponse,
@@ -31,6 +32,10 @@ export class MockAIProvider implements AIProvider {
 
   async validateConfig(): Promise<boolean> {
     return true;
+  }
+
+  setModel(_model: string): void {
+    // No-op for mock provider
   }
 
   enableDebug(): void {

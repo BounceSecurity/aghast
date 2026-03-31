@@ -1,0 +1,233 @@
+{
+  "name": "test-project",
+  "repository": "https://github.com/test/repo",
+  "units": [
+    {
+      "id": "app/views.py:handle_login",
+      "unit_type": "view_function",
+      "code": {
+        "primary_code": "def handle_login(request):\n    username = request.POST['username']\n    password = request.POST['password']\n    query = f\"SELECT * FROM users WHERE username='{username}' AND password='{password}'\"\n    cursor.execute(query)\n    return cursor.fetchone()",
+        "primary_origin": {
+          "file_path": "app/views.py",
+          "start_line": 10,
+          "end_line": 16,
+          "function_name": "handle_login",
+          "class_name": null,
+          "enhanced": false,
+          "files_included": ["app/views.py"],
+          "original_length": 250,
+          "enhanced_length": 250
+        },
+        "dependencies": [],
+        "dependency_metadata": {
+          "depth": 1,
+          "total_upstream": 0,
+          "total_downstream": 2,
+          "direct_calls": 0,
+          "direct_callers": 2
+        }
+      },
+      "ground_truth": { "status": "UNKNOWN" },
+      "metadata": {
+        "decorators": ["@login_required"],
+        "is_async": false,
+        "parameters": ["request"],
+        "docstring": "Handle user login",
+        "direct_calls": ["cursor.execute"],
+        "direct_callers": ["url_patterns"]
+      },
+      "reachable": true,
+      "is_entry_point": true,
+      "entry_point_reason": "input_pattern:request.POST",
+      "agent_context": {
+        "include_functions": [],
+        "usage_context": "Handles user login form submission",
+        "security_classification": "exploitable",
+        "classification_reasoning": "SQL injection via unsanitized user input in query string",
+        "confidence": 0.95,
+        "agent_metadata": { "iterations": 2, "total_tokens": 500 },
+        "reachability": {
+          "is_entry_point": true,
+          "reachable_from_entry": true,
+          "entry_point_path": []
+        }
+      }
+    },
+    {
+      "id": "app/utils.py:sanitize_input",
+      "unit_type": "function",
+      "code": {
+        "primary_code": "def sanitize_input(value):\n    return value.replace(\"'\", \"''\").strip()",
+        "primary_origin": {
+          "file_path": "app/utils.py",
+          "start_line": 5,
+          "end_line": 6,
+          "function_name": "sanitize_input",
+          "class_name": null,
+          "enhanced": false,
+          "files_included": ["app/utils.py"],
+          "original_length": 60,
+          "enhanced_length": 60
+        },
+        "dependencies": [],
+        "dependency_metadata": {
+          "depth": 0,
+          "total_upstream": 0,
+          "total_downstream": 0,
+          "direct_calls": 0,
+          "direct_callers": 0
+        }
+      },
+      "ground_truth": { "status": "UNKNOWN" },
+      "metadata": {
+        "decorators": [],
+        "is_async": false,
+        "parameters": ["value"],
+        "docstring": null,
+        "direct_calls": [],
+        "direct_callers": []
+      },
+      "reachable": true,
+      "is_entry_point": false,
+      "entry_point_reason": "",
+      "agent_context": {
+        "include_functions": [],
+        "usage_context": "Utility function for input sanitization",
+        "security_classification": "security_control",
+        "classification_reasoning": "This function sanitizes SQL input by escaping quotes",
+        "confidence": 0.8,
+        "agent_metadata": { "iterations": 1, "total_tokens": 200 },
+        "reachability": {
+          "is_entry_point": false,
+          "reachable_from_entry": true,
+          "entry_point_path": ["handle_login"]
+        }
+      }
+    },
+    {
+      "id": "app/models.py:User.__init__",
+      "unit_type": "constructor",
+      "code": {
+        "primary_code": "class User:\n    def __init__(self, name, email):\n        self.name = name\n        self.email = email",
+        "primary_origin": {
+          "file_path": "app/models.py",
+          "start_line": 1,
+          "end_line": 4,
+          "function_name": "__init__",
+          "class_name": "User",
+          "enhanced": false,
+          "files_included": ["app/models.py"],
+          "original_length": 90,
+          "enhanced_length": 90
+        },
+        "dependencies": [],
+        "dependency_metadata": {
+          "depth": 0,
+          "total_upstream": 0,
+          "total_downstream": 0,
+          "direct_calls": 0,
+          "direct_callers": 0
+        }
+      },
+      "ground_truth": { "status": "UNKNOWN" },
+      "metadata": {
+        "decorators": [],
+        "is_async": false,
+        "parameters": ["self", "name", "email"],
+        "docstring": null,
+        "direct_calls": [],
+        "direct_callers": []
+      },
+      "reachable": true,
+      "is_entry_point": false,
+      "entry_point_reason": "",
+      "agent_context": {
+        "include_functions": [],
+        "usage_context": "Data model for user objects",
+        "security_classification": "neutral",
+        "classification_reasoning": "Simple data class with no security implications",
+        "confidence": 0.99,
+        "agent_metadata": { "iterations": 1, "total_tokens": 150 },
+        "reachability": {
+          "is_entry_point": false,
+          "reachable_from_entry": true,
+          "entry_point_path": ["handle_login"]
+        }
+      }
+    },
+    {
+      "id": "tests/test_views.py:test_login",
+      "unit_type": "test",
+      "code": {
+        "primary_code": "def test_login():\n    assert handle_login(mock_request) is not None",
+        "primary_origin": {
+          "file_path": "tests/test_views.py",
+          "start_line": 1,
+          "end_line": 2,
+          "function_name": "test_login",
+          "class_name": null,
+          "enhanced": false,
+          "files_included": ["tests/test_views.py"],
+          "original_length": 55,
+          "enhanced_length": 55
+        },
+        "dependencies": [],
+        "dependency_metadata": {
+          "depth": 0,
+          "total_upstream": 1,
+          "total_downstream": 0,
+          "direct_calls": 1,
+          "direct_callers": 0
+        }
+      },
+      "ground_truth": { "status": "UNKNOWN" },
+      "metadata": {
+        "decorators": [],
+        "is_async": false,
+        "parameters": [],
+        "docstring": null,
+        "direct_calls": ["handle_login"],
+        "direct_callers": []
+      },
+      "reachable": false,
+      "is_entry_point": false,
+      "entry_point_reason": "",
+      "agent_context": {
+        "include_functions": [],
+        "usage_context": "Test for login handler",
+        "security_classification": "neutral",
+        "classification_reasoning": "Test code, no security implications",
+        "confidence": 0.99,
+        "agent_metadata": { "iterations": 1, "total_tokens": 100 },
+        "reachability": {
+          "is_entry_point": false,
+          "reachable_from_entry": false,
+          "entry_point_path": []
+        }
+      }
+    }
+  ],
+  "statistics": {
+    "total_units": 4,
+    "by_type": { "view_function": 1, "function": 1, "constructor": 1, "test": 1 },
+    "units_with_upstream": 1,
+    "units_with_downstream": 1,
+    "units_enhanced": 0,
+    "avg_upstream": 0.25,
+    "avg_downstream": 0.5
+  },
+  "metadata": {
+    "generator": "python_unit_generator.py",
+    "generated_at": "2026-01-15T10:00:00Z",
+    "dependency_depth": 2,
+    "reachability_filter": {
+      "original_units": 100,
+      "entry_points": 1,
+      "reachable_units": 4,
+      "filtered_out": 96,
+      "reduction_percentage": 96.0
+    },
+    "agentic_enhanced": true,
+    "enhancement_mode": "agentic"
+  }
+}

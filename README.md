@@ -18,11 +18,11 @@ Define static rules, security checks as markdown instructions, point AGHAST at a
 
 ## What AGHAST Does
 
-You can read the full background to this tool in our blogpost [here](https://bouncesecurity.com/aghast) but, to cut to the chase, AGHAST helps you run three types of checks:
+You can read the full background to this tool in our blogpost [here](https://bouncesecurity.com/aghast) but, to cut to the chase, AGHAST uses three core mechanisms:
 
-- Pure AI scanning rules - let the LLM do all the analysis
-- A combination of a static rule and an AI scanning rule - the sweet spot for most use cases
-- Purely static rules - for completeness, when a traditional static rule is all you need
+- **Repository-wide AI analysis** — let the LLM analyze the whole repo against your security check instructions
+- **Targeted checks** — a pluggable discovery method (Semgrep rules, [OpenAnt](https://github.com/knostic/OpenAnt/) code units, or external SARIF findings) identifies specific code locations, then AI analyzes each independently. This is the sweet spot for most use cases
+- **Static checks** — a discovery method (e.g., Semgrep) finds issues mapped directly to results with no AI involvement, for when a traditional static rule is all you need
 
 The beauty of the approach is what you *don't* need:
 
@@ -41,8 +41,9 @@ There are almost certainly other ways of achieving this, but to our mind, this a
 ## Prerequisites
 
 - **Node.js 20+**
-- **[Semgrep Community Edition](https://semgrep.dev/docs/getting-started/)** (LGPL-2.1, optional) — only needed for checks that use Semgrep rules
-- **Anthropic API key** — for AI-based checks (not needed for semgrep-only checks)
+- **[Semgrep Community Edition](https://semgrep.dev/docs/getting-started/)** (LGPL-2.1, optional) — only needed for checks that use Semgrep discovery
+- **[OpenAnt](https://github.com/knostic/OpenAnt/)** (Apache-2.0, optional) + **Python 3.11+** — only needed for checks that use OpenAnt discovery
+- **Anthropic API key** — for AI-based checks (not needed for static checks)
 
 ## Installation
 
@@ -95,6 +96,7 @@ Results are structured JSON (or SARIF) with per-check status and detailed issues
 ## Documentation
 
 - [Getting Started](docs/getting-started.md) — installation, setup, and first scan
+- [Trying It Out](docs/trying-it-out.md) — example checks walkthrough and first scan guide
 - [Scanning](docs/scanning.md) — scan command options, environment variables, output formats
 - [Creating Checks](docs/creating-checks.md) — scaffolding new security checks
 - [Configuration Reference](docs/configuration.md) — check schemas, check types, runtime config

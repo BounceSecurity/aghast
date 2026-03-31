@@ -26,7 +26,10 @@ pnpm scan -- <repo-path> [options]
 pnpm new-check -- [options]
 pnpm build
 pnpm test
+pnpm test:ci        # Run tests with spec and JUnit reporters (for CI)
+pnpm test:semgrep   # Run real Semgrep integration tests (requires Semgrep installed)
 pnpm lint
+pnpm lint:fix       # Run ESLint with auto-fix
 ```
 
 ## Releasing

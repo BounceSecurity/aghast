@@ -1,7 +1,8 @@
 {
   "id": "aghast-sarif-verify",
   "name": "SARIF Verify Check",
+  "instructionsFile": "aghast-sarif-verify.md",
   "severity": "high",
   "confidence": "medium",
-  "checkTarget": { "type": "sarif-verify" }
+  "checkTarget": { "type": "targeted", "discovery": "sarif", "sarifFile": "./sast-results.sarif" }
 }

@@ -19,11 +19,11 @@ my-checks/
   checks/
     aghast-xss/
       aghast-xss.json         # Layer 2: check definition (name, severity, type)
-      aghast-xss.md           # AI instructions (not needed for semgrep-only)
+      aghast-xss.md           # AI instructions (not needed for static, openant, or sarif checks)
     aghast-sqli/
       aghast-sqli.json
       aghast-sqli.md
-      aghast-sqli.yaml        # Semgrep rule (for semgrep/semgrep-only checks)
+      aghast-sqli.yaml        # Semgrep rule (for checks with semgrep discovery)
       tests/                  # Semgrep rule test files
         aghast-sqli.py        # .py, .js, or .ts based on --language
   runtime-config.json          # (Optional) AI provider & reporting overrides
@@ -74,7 +74,7 @@ Each check folder contains a JSON definition file with the check's metadata.
 }
 ```
 
-**Multi-target check** (Semgrep finds code locations, AI analyzes each):
+**Targeted check with Semgrep discovery** (Semgrep finds code locations, AI analyzes each):
 
 ```json
 {
@@ -84,7 +84,8 @@ Each check folder contains a JSON definition file with the check's metadata.
   "severity": "critical",
   "confidence": "high",
   "checkTarget": {
-    "type": "semgrep",
+    "type": "targeted",
+    "discovery": "semgrep",
     "rules": "aghast-sqli.yaml",
     "maxTargets": 50,
     "concurrency": 3
@@ -92,7 +93,7 @@ Each check folder contains a JSON definition file with the check's metadata.
 }
 ```
 
-**Semgrep-only check** (Semgrep findings mapped directly, no AI):
+**Static check with Semgrep discovery** (Semgrep findings mapped directly, no AI):
 
 ```json
 {
@@ -101,13 +102,14 @@ Each check folder contains a JSON definition file with the check's metadata.
   "severity": "critical",
   "confidence": "high",
   "checkTarget": {
-    "type": "semgrep-only",
+    "type": "static",
+    "discovery": "semgrep",
     "rules": "aghast-hardcoded-secrets.yaml"
   }
 }
 ```
 
-**SARIF verification check** (external SARIF findings validated by AI):
+**Targeted check with SARIF discovery** (external SARIF findings validated by AI):
 
 ```json
 {
@@ -117,7 +119,31 @@ Each check folder contains a JSON definition file with the check's metadata.
   "severity": "high",
   "confidence": "medium",
   "checkTarget": {
-    "type": "sarif-verify"
+    "type": "targeted",
+    "discovery": "sarif",
+    "sarifFile": "./example-findings.sarif"
+  }
+}
+```
+
+**Targeted check with OpenAnt discovery** (code units analyzed by AI):
+
+```json
+{
+  "id": "aghast-openant-review",
+  "name": "OpenAnt Security Review",
+  "instructionsFile": "aghast-openant-review.md",
+  "severity": "high",
+  "confidence": "medium",
+  "checkTarget": {
+    "type": "targeted",
+    "discovery": "openant",
+    "maxTargets": 50,
+    "concurrency": 3,
+    "openant": {
+      "securityClassifications": ["exploitable", "vulnerable_internal"],
+      "excludeUnitTypes": ["test", "dunder_method"]
+    }
   }
 }
 ```
@@ -126,25 +152,44 @@ Each check folder contains a JSON definition file with the check's metadata.
 |--------------------|-------------------------------|----------|-------------|
 | `id`               | `string`                      | Yes      | Must match the Layer 1 registry ID and folder name |
 | `name`             | `string`                      | Yes      | Human-readable check name |
-| `instructionsFile`  | `string`                     | Yes*     | Markdown file with AI instructions (*not needed for semgrep-only or sarif-verify) |
+| `instructionsFile`  | `string`                     | Yes*     | Markdown file with AI instructions (*not needed for `static` checks or `targeted` checks with `openant`/`sarif` discovery — these have self-contained generic prompts) |
 | `severity`         | `string`                      | No       | `critical`, `high`, `medium`, `low`, or `informational` |
 | `confidence`       | `string`                      | No       | `high`, `medium`, or `low` |
-| `checkTarget`      | `object`                      | No       | Semgrep target configuration (omit for repository checks) |
-| `checkTarget.type` | `string`                      | Yes**    | `semgrep`, `semgrep-only`, or `sarif-verify` (**required if `checkTarget` present) |
-| `checkTarget.rules`| `string` or `string[]`        | Yes***   | Semgrep rule file path(s) relative to check folder (***not needed for sarif-verify) |
-| `checkTarget.maxTargets` | `number`               | No       | Limit number of Semgrep targets to analyze |
-| `checkTarget.concurrency` | `number`              | No       | Max parallel AI analyses for multi-target (default: 5) |
+| `model`            | `string`                      | No       | AI model override for this check (e.g. `claude-sonnet-4-20250514`). Takes precedence over CLI `--model` and runtime config |
+| `checkTarget`      | `object`                      | No       | Target configuration (omit for repository checks) |
+| `checkTarget.type` | `string`                      | Yes**    | `repository`, `targeted`, or `static` (**required if `checkTarget` present) |
+| `checkTarget.discovery` | `string`                 | Yes***   | Discovery method: `semgrep`, `sarif`, or `openant` (***required for `targeted` and `static` types) |
+| `checkTarget.rules`| `string` or `string[]`        | Yes****  | Semgrep rule file path(s) relative to check folder (****only for `semgrep` discovery) |
+| `checkTarget.sarifFile` | `string`                 | Yes***** | Path to SARIF file relative to check folder (*****only for `sarif` discovery) |
+| `checkTarget.maxTargets` | `number`               | No       | Limit number of targets/units to analyze |
+| `checkTarget.concurrency` | `number`              | No       | Max parallel AI analyses for targeted checks (default: 5) |
+| `checkTarget.openant` | `object`                  | No       | OpenAnt unit filter config (only for `openant` discovery). See below |
+| `checkTarget.openant.unitTypes` | `string[]`       | No       | Include only these unit types (e.g. `["function", "method"]`) |
+| `checkTarget.openant.excludeUnitTypes` | `string[]` | No      | Exclude these unit types (e.g. `["test", "dunder_method"]`) |
+| `checkTarget.openant.securityClassifications` | `string[]` | No | Filter by OpenAnt classification (e.g. `["exploitable", "vulnerable_internal"]`) |
+| `checkTarget.openant.reachableOnly` | `boolean`    | No       | Only include units reachable from entry points |
+| `checkTarget.openant.entryPointsOnly` | `boolean`  | No       | Only include entry point units |
+| `checkTarget.openant.minConfidence` | `number`     | No       | Minimum classification confidence (0-1) |
 | `applicablePaths`  | `string[]`                    | No       | Glob patterns to include (e.g. `["src/**/*.ts"]`) |
 | `excludedPaths`    | `string[]`                    | No       | Glob patterns to exclude (e.g. `["tests/**"]`) |
 
 ## Check Types
 
-| Type | Semgrep Required? | AI Required? | SARIF Input? | Description |
-|------|-------------------|--------------|--------------|-------------|
-| `repository` | No | Yes | No | AI analyzes the entire repository against the instructions |
-| `semgrep` | Yes | Yes | No | Semgrep discovers specific code locations, AI analyzes each one |
-| `semgrep-only` | Yes | No | No | Semgrep findings are mapped directly to issues, no AI needed |
-| `sarif-verify` | No | Yes | Yes (`--sarif-file`) | External SARIF provides findings, AI validates each as true/false positive |
+| Type | AI Required? | Description |
+|------|--------------|-------------|
+| `repository` | Yes | AI analyzes the entire repository against the instructions |
+| `targeted` | Yes | A discovery method finds specific code locations, AI analyzes each one |
+| `static` | No | A discovery method finds code locations, findings are mapped directly to issues (no AI needed) |
+
+### Discovery Methods
+
+The `discovery` field on `checkTarget` specifies how targets are found for `targeted` and `static` checks:
+
+| Discovery | Requires | Description |
+|-----------|----------|-------------|
+| `semgrep` | Semgrep installed | Runs Semgrep rules to discover specific code locations |
+| `sarif` | SARIF file in check definition (`sarifFile`) | Reads findings from an external SARIF file |
+| `openant` | OpenAnt + Python 3.11+ | Runs `openant parse` on the target repo to extract code units with call graph context |
 
 ## Check Instructions (`<id>.md`)
 
@@ -201,6 +246,11 @@ An optional `runtime-config.json` file in the config directory (or specified via
     "outputDirectory": "/path/to/results",
     "outputFormat": "json"
   },
+  "logging": {
+    "logFile": "/path/to/scan.log",
+    "logType": "file",
+    "level": "info"
+  },
   "genericPrompt": "generic-instructions.md",
   "failOnCheckFailure": false
 }
@@ -212,6 +262,9 @@ An optional `runtime-config.json` file in the config directory (or specified via
 | `aiProvider.model`              | `string`   | (provider default) | Model ID override |
 | `reporting.outputDirectory`     | `string`   | (target repo) | Directory for result files |
 | `reporting.outputFormat`        | `string`   | `json` | Output format: `json` or `sarif` |
+| `logging.logFile`               | `string`   | (none) | Path to log file. When set, all log output is written to this file |
+| `logging.logType`               | `string`   | `file` | Log file handler type. Pluggable — currently only `file` is supported |
+| `logging.level`                 | `string`   | `info` | Console log level: `error`, `warn`, `info`, `debug`, `trace` |
 | `genericPrompt`                 | `string`   | `generic-instructions.md` | Generic prompt template filename |
 | `failOnCheckFailure`            | `boolean`  | `false` | Exit with code 1 if any check FAILs or ERRORs |
 

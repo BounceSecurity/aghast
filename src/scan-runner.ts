@@ -12,9 +12,13 @@ import { buildPrompt } from './prompt-template.js';
 import { parseAIResponse } from './response-parser.js';
 import { extractSnippet } from './snippet-extractor.js';
 import { analyzeRepository } from './repository-analyzer.js';
-import { runSemgrep } from './semgrep-runner.js';
-import { parseSARIF, deduplicateTargets, limitTargets } from './sarif-parser.js';
 import { logProgress, logDebug, createTimer } from './logging.js';
+import { CHECK_TYPE } from './check-types.js';
+import { getDiscovery, registerDiscovery } from './discovery.js';
+import { semgrepDiscovery } from './discoveries/semgrep-discovery.js';
+import { openantDiscovery } from './discoveries/openant-discovery.js';
+import { sarifDiscovery } from './discoveries/sarif-discovery.js';
+import type { DiscoveredTarget } from './discovery.js';
 import {
   DEFAULT_AI_MODEL,
   FatalProviderError,
@@ -25,7 +29,6 @@ import {
   type CheckExecutionSummary,
   type CheckDetails,
   type SecurityCheck,
-  type CheckTarget,
   type ScanResults,
   type ScanSummary,
   type TokenUsage,
@@ -34,6 +37,11 @@ import {
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const TAG = 'scan';
 const DEFAULT_CONCURRENCY = 5;
+
+// --- Register built-in discovery implementations ---
+registerDiscovery(semgrepDiscovery);
+registerDiscovery(openantDiscovery);
+registerDiscovery(sarifDiscovery);
 
 /**
  * Sum multiple TokenUsage values into one aggregate.
@@ -88,6 +96,9 @@ async function mapWithConcurrency<T, R>(
   async function worker(): Promise<void> {
     while (nextIndex < items.length) {
       if (abortHandle?.aborted) break;
+      // Safe without atomics: Node.js is single-threaded, so nextIndex++ is
+      // not interleaved — each worker awaits before looping, yielding to the
+      // event loop where the next worker reads and increments the same variable.
       const i = nextIndex++;
       results[i] = await fn(items[i], i);
     }
@@ -119,7 +130,6 @@ export interface MultiScanOptions {
   repositoryInfo?: RepositoryInfo;
   configDir?: string;
   genericPrompt?: string;
-  sarifFile?: string;
 }
 
 /**
@@ -184,9 +194,74 @@ async function enrichIssue(
 }
 
 /**
- * Execute a single check against a repository via the AI provider.
- * Routes to multi-target execution if checkTarget is configured.
- * Handles prompt building, AI call, response parsing, issue enrichment.
+ * If the check specifies a per-check model, switch the provider to that model
+ * and return the previous model name so it can be restored after execution.
+ */
+function applyPerCheckModel(
+  check: SecurityCheck,
+  aiProvider: AIProvider | undefined,
+  globalModelName: string | undefined,
+): string | undefined {
+  if (!check.model || !aiProvider?.setModel) return undefined;
+  const previousModel = aiProvider.getModelName?.() ?? globalModelName;
+  aiProvider.setModel(check.model);
+  logProgress(TAG, `Using per-check model: ${check.model} (check: ${check.id})`);
+  return previousModel;
+}
+
+/**
+ * Restore the provider's model to the previous value after per-check override.
+ */
+function restoreModel(
+  aiProvider: AIProvider | undefined,
+  previousModel: string | undefined,
+): void {
+  if (previousModel !== undefined && aiProvider?.setModel) {
+    aiProvider.setModel(previousModel);
+  }
+}
+
+/**
+ * Map a discovered target directly to a SecurityIssue (for static checks).
+ * Extracts code snippet from source file via extractSnippet().
+ */
+async function mapTargetToIssue(
+  target: DiscoveredTarget,
+  checkId: string,
+  checkName: string,
+  repositoryPath: string,
+  checkMetadata?: { severity?: string; confidence?: string },
+): Promise<SecurityIssue> {
+  const codeSnippet = await extractSnippet(
+    repositoryPath,
+    target.file,
+    target.startLine,
+    target.endLine,
+  );
+
+  const issue: SecurityIssue = {
+    checkId,
+    checkName,
+    file: target.file.replace(/\\/g, '/'),
+    startLine: target.startLine,
+    endLine: target.endLine,
+    description: target.message || 'Static finding',
+  };
+  if (codeSnippet !== undefined) {
+    issue.codeSnippet = codeSnippet;
+  }
+  if (checkMetadata?.severity !== undefined) {
+    issue.severity = checkMetadata.severity;
+  }
+  if (checkMetadata?.confidence !== undefined) {
+    issue.confidence = checkMetadata.confidence;
+  }
+  return issue;
+}
+
+/**
+ * Execute a single check against a repository.
+ * Routes to the appropriate execution path based on check type.
  */
 async function executeSingleCheck(
   check: SecurityCheck,
@@ -198,16 +273,15 @@ async function executeSingleCheck(
   concurrency?: number,
   configDir?: string,
   genericPrompt?: string,
-  sarifFile?: string,
 ): Promise<CheckExecutionResult> {
   const checkId = check.id;
 
-  // Route to multi-target execution if configured
-  if (check.checkTarget?.type === 'semgrep') {
+  // Route to targeted execution (discovery + AI analysis)
+  if (check.checkTarget?.type === CHECK_TYPE.TARGETED) {
     if (!aiProvider) {
       throw new Error(`Check "${checkId}" requires an AI provider but none was configured`);
     }
-    return executeMultiTargetCheck(
+    return executeTargetedCheck(
       check,
       checkName,
       checkInstructions,
@@ -220,44 +294,12 @@ async function executeSingleCheck(
     );
   }
 
-  // Route to semgrep-only execution (no AI)
-  if (check.checkTarget?.type === 'semgrep-only') {
-    return executeSemgrepOnlyCheck(check, checkName, repositoryPath, checkMetadata);
+  // Route to static execution (discovery + direct mapping, no AI)
+  if (check.checkTarget?.type === CHECK_TYPE.STATIC) {
+    return executeStaticCheck(check, checkName, repositoryPath, checkMetadata);
   }
 
-  // Route to SARIF verification (external SARIF + AI validation)
-  if (check.checkTarget?.type === 'sarif-verify') {
-    if (!aiProvider) {
-      throw new Error(`Check "${checkId}" requires an AI provider but none was configured`);
-    }
-    if (!sarifFile) {
-      const errorMsg = `Check "${checkId}" is a sarif-verify check but no --sarif-file was provided`;
-      logProgress(TAG, `Result: ERROR (${errorMsg})`);
-      return {
-        summary: {
-          checkId,
-          checkName,
-          status: 'ERROR',
-          issuesFound: 0,
-          executionTime: 0,
-          error: errorMsg,
-        },
-        issues: [],
-      };
-    }
-    return executeSarifVerifyCheck(
-      check,
-      checkName,
-      checkInstructions,
-      repositoryPath,
-      aiProvider,
-      sarifFile,
-      checkMetadata,
-      concurrency,
-      configDir,
-    );
-  }
-
+  // Repository check (no discovery, AI analyzes whole repo)
   if (!aiProvider) {
     throw new Error(`Check "${checkId}" requires an AI provider but none was configured`);
   }
@@ -351,48 +393,184 @@ async function executeSingleCheck(
 }
 
 /**
- * Map a SARIF CheckTarget directly to a SecurityIssue (for semgrep-only checks).
- * Extracts code snippet from source file via extractSnippet().
+ * Execute a targeted check: discovery finds targets, AI analyzes each.
+ * The execution pipeline is generic — all discovery-specific behavior is
+ * encapsulated in the DiscoveredTarget data from the discovery implementation.
  */
-async function mapTargetToIssue(
-  target: CheckTarget,
-  checkId: string,
+async function executeTargetedCheck(
+  check: SecurityCheck,
   checkName: string,
+  checkInstructions: string,
   repositoryPath: string,
+  aiProvider: AIProvider,
   checkMetadata?: { severity?: string; confidence?: string },
-): Promise<SecurityIssue> {
-  const codeSnippet = await extractSnippet(
-    repositoryPath,
-    target.file,
-    target.startLine,
-    target.endLine,
-  );
+  optionsConcurrency?: number,
+  configDir?: string,
+  genericPromptOverride?: string,
+): Promise<CheckExecutionResult> {
+  const checkId = check.id;
+  const checkTarget = check.checkTarget!;
 
-  const issue: SecurityIssue = {
-    checkId,
-    checkName,
-    file: target.file.replace(/\\/g, '/'),
-    startLine: target.startLine,
-    endLine: target.endLine,
-    description: target.message || 'Semgrep finding',
-  };
-  if (codeSnippet !== undefined) {
-    issue.codeSnippet = codeSnippet;
+  const discoveryName = checkTarget.discovery;
+  if (!discoveryName) {
+    throw new Error(`Check "${checkId}" is targeted but has no "discovery" specified`);
   }
-  if (checkMetadata?.severity !== undefined) {
-    issue.severity = checkMetadata.severity;
+
+  const discovery = getDiscovery(discoveryName);
+
+  logProgress(TAG, `Running targeted check: ${checkName} (discovery: ${discoveryName})`);
+  const checkTimer = createTimer();
+
+  try {
+    // 1. Discover targets
+    let targets = await discovery.discover(check, repositoryPath, { repositoryPath });
+
+    // 2. Apply maxTargets limit
+    if (checkTarget.maxTargets !== undefined && targets.length > checkTarget.maxTargets) {
+      targets = targets.slice(0, checkTarget.maxTargets);
+      logProgress(TAG, `Limited to ${targets.length} targets (maxTargets: ${checkTarget.maxTargets})`);
+    }
+
+    // 3. If no targets, return PASS
+    if (targets.length === 0) {
+      logProgress(TAG, 'Result: PASS (no targets found)');
+      return {
+        summary: {
+          checkId,
+          checkName,
+          status: 'PASS',
+          issuesFound: 0,
+          executionTime: checkTimer.elapsed(),
+          targetsAnalyzed: 0,
+        },
+        issues: [],
+      };
+    }
+
+    // 4. Resolve effective concurrency: per-check > options > default
+    const effectiveConcurrency =
+      checkTarget.concurrency ?? optionsConcurrency ?? DEFAULT_CONCURRENCY;
+
+    logProgress(TAG, `Found ${targets.length} targets to analyze (concurrency: ${effectiveConcurrency})`);
+
+    // 5. Build base prompt using discovery's default generic prompt (or CLI override)
+    const effectiveGenericPrompt = genericPromptOverride ?? discovery.defaultGenericPrompt;
+    const basePrompt = await buildPrompt(checkInstructions, configDir, effectiveGenericPrompt);
+    let completedCount = 0;
+    const abortHandle: AbortHandle = { aborted: false };
+
+    // 6. Analyze targets concurrently — pipeline is generic, no discovery conditionals
+    const targetResults = await mapWithConcurrency(
+      targets,
+      effectiveConcurrency,
+      async (target, _idx) => {
+        try {
+          const prompt = basePrompt + (target.promptEnrichment ?? '');
+
+          logDebug(TAG, `${target.label} Analyzing: ${target.file}:${target.startLine}-${target.endLine}`);
+          const aiResponse = await aiProvider.executeCheck(
+            prompt,
+            repositoryPath,
+            target.label,
+            target.aiOptions,
+          );
+
+          const parsed = aiResponse.parsed ?? parseAIResponse(aiResponse.raw);
+
+          if (!parsed) {
+            logDebug(TAG, `${target.label} Returned malformed response`);
+            return { issues: [] as SecurityIssue[], error: true, flagged: false, tokenUsage: aiResponse.tokenUsage };
+          }
+
+          const issues = await Promise.all(
+            parsed.issues.map((aiIssue) =>
+              enrichIssue(aiIssue, checkId, checkName, repositoryPath, checkMetadata),
+            ),
+          );
+          return { issues, error: false, flagged: parsed.flagged === true, tokenUsage: aiResponse.tokenUsage };
+        } catch (err) {
+          // Fatal errors: signal abort and re-throw to stop other workers
+          if (err instanceof FatalProviderError) {
+            abortHandle.aborted = true;
+            abortHandle.reason = err;
+            throw err;
+          }
+          const errorMsg = err instanceof Error ? err.message : String(err);
+          logDebug(TAG, `${target.label} Error: ${errorMsg}`);
+          return { issues: [] as SecurityIssue[], error: true, flagged: false, tokenUsage: undefined };
+        } finally {
+          completedCount++;
+          logProgress(TAG, `Progress: ${completedCount}/${targets.length} targets analyzed`);
+        }
+      },
+      abortHandle,
+    );
+
+    // 7. Aggregate results
+    const allIssues: SecurityIssue[] = [];
+    let hasErrors = false;
+    let hasFlagged = false;
+    const targetTokenUsages: (TokenUsage | undefined)[] = [];
+    for (const result of targetResults) {
+      allIssues.push(...result.issues);
+      if (result.error) hasErrors = true;
+      if (result.flagged) hasFlagged = true;
+      targetTokenUsages.push(result.tokenUsage);
+    }
+
+    // 8. Determine status: FAIL > FLAG > ERROR > PASS
+    const executionTime = checkTimer.elapsed();
+    let status: 'PASS' | 'FAIL' | 'FLAG' | 'ERROR';
+    if (allIssues.length > 0) {
+      status = 'FAIL';
+    } else if (hasFlagged) {
+      status = 'FLAG';
+    } else if (hasErrors) {
+      status = 'ERROR';
+    } else {
+      status = 'PASS';
+    }
+
+    logProgress(TAG, `Result: ${status} (${allIssues.length} issues, ${targets.length} targets)`);
+
+    return {
+      summary: {
+        checkId,
+        checkName,
+        status,
+        issuesFound: allIssues.length,
+        executionTime,
+        targetsAnalyzed: targets.length,
+        tokenUsage: sumTokenUsage(targetTokenUsages),
+      },
+      issues: allIssues,
+    };
+  } catch (err) {
+    // Fatal errors must propagate up to abort the entire scan
+    if (err instanceof FatalProviderError) {
+      throw err;
+    }
+    const executionTime = checkTimer.elapsed();
+    const errorMsg = err instanceof Error ? err.message : String(err);
+    logProgress(TAG, `Result: ERROR (${errorMsg})`);
+    return {
+      summary: {
+        checkId,
+        checkName,
+        status: 'ERROR',
+        issuesFound: 0,
+        executionTime,
+        error: errorMsg,
+      },
+      issues: [],
+    };
   }
-  if (checkMetadata?.confidence !== undefined) {
-    issue.confidence = checkMetadata.confidence;
-  }
-  return issue;
 }
 
 /**
- * Execute a semgrep-only check: Semgrep discovers findings, mapped directly
- * to issues with no AI involvement.
+ * Execute a static check: discovery finds targets, mapped directly to issues (no AI).
  */
-async function executeSemgrepOnlyCheck(
+async function executeStaticCheck(
   check: SecurityCheck,
   checkName: string,
   repositoryPath: string,
@@ -401,23 +579,23 @@ async function executeSemgrepOnlyCheck(
   const checkId = check.id;
   const checkTarget = check.checkTarget!;
 
-  logProgress(TAG, `Running semgrep-only check: ${checkName}`);
+  const discoveryName = checkTarget.discovery;
+  if (!discoveryName) {
+    throw new Error(`Check "${checkId}" is static but has no "discovery" specified`);
+  }
+
+  const discovery = getDiscovery(discoveryName);
+
+  logProgress(TAG, `Running static check: ${checkName} (discovery: ${discoveryName})`);
   const checkTimer = createTimer();
 
   try {
-    // 1. Run Semgrep to discover findings
-    const sarifContent = await runSemgrep({
-      repositoryPath,
-      rules: checkTarget.rules,
-      config: checkTarget.config,
-    });
+    // 1. Discover targets
+    let targets = await discovery.discover(check, repositoryPath, { repositoryPath });
 
-    // 2. Parse, deduplicate, and limit targets
-    let targets = parseSARIF(sarifContent);
-    targets = deduplicateTargets(targets);
-
-    if (checkTarget.maxTargets !== undefined) {
-      targets = limitTargets(targets, checkTarget.maxTargets);
+    // 2. Apply maxTargets limit
+    if (checkTarget.maxTargets !== undefined && targets.length > checkTarget.maxTargets) {
+      targets = targets.slice(0, checkTarget.maxTargets);
     }
 
     // 3. If no targets, return PASS
@@ -476,361 +654,10 @@ async function executeSemgrepOnlyCheck(
 }
 
 /**
- * Execute a multi-target check: Semgrep discovers targets, AI analyzes each.
- */
-async function executeMultiTargetCheck(
-  check: SecurityCheck,
-  checkName: string,
-  checkInstructions: string,
-  repositoryPath: string,
-  aiProvider: AIProvider,
-  checkMetadata?: { severity?: string; confidence?: string },
-  optionsConcurrency?: number,
-  configDir?: string,
-  genericPrompt?: string,
-): Promise<CheckExecutionResult> {
-  const checkId = check.id;
-  const checkTarget = check.checkTarget!;
-
-  logProgress(TAG, `Running multi-target check: ${checkName}`);
-  const checkTimer = createTimer();
-
-  try {
-    // 1. Run Semgrep to discover targets
-    const sarifContent = await runSemgrep({
-      repositoryPath,
-      rules: checkTarget.rules,
-      config: checkTarget.config,
-    });
-
-    // 2. Parse, deduplicate, and limit targets
-    let targets = parseSARIF(sarifContent);
-    targets = deduplicateTargets(targets);
-
-    if (checkTarget.maxTargets !== undefined) {
-      targets = limitTargets(targets, checkTarget.maxTargets);
-    }
-
-    // 3. If no targets, return PASS
-    if (targets.length === 0) {
-      logProgress(TAG, 'Result: PASS (no targets found)');
-      return {
-        summary: {
-          checkId,
-          checkName,
-          status: 'PASS',
-          issuesFound: 0,
-          executionTime: checkTimer.elapsed(),
-          targetsAnalyzed: 0,
-        },
-        issues: [],
-      };
-    }
-
-    // 4. Resolve effective concurrency: per-check > options > default
-    const effectiveConcurrency =
-      checkTarget.concurrency ?? optionsConcurrency ?? DEFAULT_CONCURRENCY;
-
-    logProgress(TAG, `Found ${targets.length} targets to analyze (concurrency: ${effectiveConcurrency})`);
-
-    // 5. Analyze targets concurrently
-    const basePrompt = await buildPrompt(checkInstructions, configDir, genericPrompt);
-    let completedCount = 0;
-    const abortHandle: AbortHandle = { aborted: false };
-
-    const targetResults = await mapWithConcurrency(
-      targets,
-      effectiveConcurrency,
-      async (target, idx) => {
-        const label = `[target ${idx + 1}/${targets.length}]`;
-        try {
-          const prompt = basePrompt + `\n\nTARGET LOCATION:
-
-You are analyzing a specific code location:
-- File: ${target.file}
-- Lines: ${target.startLine}-${target.endLine}
-
-You MUST:
-- Analyze ONLY this specific target location — do not search for or report issues at other locations
-- You may read other files to understand context (e.g., imports, type definitions, data flow), but only report issues for this target
-- If the code at this location is not vulnerable, return {"issues": []}
-- Do NOT scan the broader repository for other instances of this vulnerability pattern
-`;
-
-          logDebug(TAG, `${label} Analyzing target: ${target.file}:${target.startLine}-${target.endLine}`);
-          const aiResponse = await aiProvider.executeCheck(prompt, repositoryPath, label);
-
-          const parsed = aiResponse.parsed ?? parseAIResponse(aiResponse.raw);
-
-          if (!parsed) {
-            logDebug(TAG, `${label} Target returned malformed response`);
-            return { issues: [] as SecurityIssue[], error: true, flagged: false, tokenUsage: aiResponse.tokenUsage };
-          }
-
-          const issues = await Promise.all(
-            parsed.issues.map((aiIssue) =>
-              enrichIssue(aiIssue, checkId, checkName, repositoryPath, checkMetadata),
-            ),
-          );
-          return { issues, error: false, flagged: parsed.flagged === true, tokenUsage: aiResponse.tokenUsage };
-        } catch (err) {
-          // Fatal errors: signal abort and re-throw to stop other workers
-          if (err instanceof FatalProviderError) {
-            abortHandle.aborted = true;
-            abortHandle.reason = err;
-            throw err;
-          }
-          const errorMsg = err instanceof Error ? err.message : String(err);
-          logDebug(TAG, `${label} Target error: ${errorMsg}`);
-          return { issues: [] as SecurityIssue[], error: true, flagged: false, tokenUsage: undefined };
-        } finally {
-          completedCount++;
-          logProgress(TAG, `Progress: ${completedCount}/${targets.length} targets analyzed`);
-        }
-      },
-      abortHandle,
-    );
-
-    // 6. Aggregate results
-    const allIssues: SecurityIssue[] = [];
-    let hasErrors = false;
-    let hasFlagged = false;
-    const targetTokenUsages: (TokenUsage | undefined)[] = [];
-    for (const result of targetResults) {
-      allIssues.push(...result.issues);
-      if (result.error) hasErrors = true;
-      if (result.flagged) hasFlagged = true;
-      targetTokenUsages.push(result.tokenUsage);
-    }
-
-    // 7. Determine status: FAIL > FLAG > ERROR > PASS
-    const executionTime = checkTimer.elapsed();
-    let status: 'PASS' | 'FAIL' | 'FLAG' | 'ERROR';
-    if (allIssues.length > 0) {
-      status = 'FAIL';
-    } else if (hasFlagged) {
-      status = 'FLAG';
-    } else if (hasErrors) {
-      status = 'ERROR';
-    } else {
-      status = 'PASS';
-    }
-
-    logProgress(TAG, `Result: ${status} (${allIssues.length} issues, ${targets.length} targets)`);
-
-    return {
-      summary: {
-        checkId,
-        checkName,
-        status,
-        issuesFound: allIssues.length,
-        executionTime,
-        targetsAnalyzed: targets.length,
-        tokenUsage: sumTokenUsage(targetTokenUsages),
-      },
-      issues: allIssues,
-    };
-  } catch (err) {
-    // Fatal errors must propagate up to abort the entire scan
-    if (err instanceof FatalProviderError) {
-      throw err;
-    }
-    const executionTime = checkTimer.elapsed();
-    const errorMsg = err instanceof Error ? err.message : String(err);
-    logProgress(TAG, `Result: ERROR (${errorMsg})`);
-    return {
-      summary: {
-        checkId,
-        checkName,
-        status: 'ERROR',
-        issuesFound: 0,
-        executionTime,
-        error: errorMsg,
-      },
-      issues: [],
-    };
-  }
-}
-
-/**
- * Execute a SARIF verification check: read external SARIF, AI validates each finding.
- * Works like executeMultiTargetCheck but reads a SARIF file instead of running Semgrep.
- */
-async function executeSarifVerifyCheck(
-  check: SecurityCheck,
-  checkName: string,
-  checkInstructions: string,
-  repositoryPath: string,
-  aiProvider: AIProvider,
-  sarifFilePath: string,
-  checkMetadata?: { severity?: string; confidence?: string },
-  optionsConcurrency?: number,
-  configDir?: string,
-): Promise<CheckExecutionResult> {
-  const checkId = check.id;
-  const checkTarget = check.checkTarget!;
-
-  logProgress(TAG, `Running sarif-verify check: ${checkName}`);
-  const checkTimer = createTimer();
-
-  try {
-    // 1. Read the external SARIF file
-    logDebug(TAG, `Reading SARIF file: ${sarifFilePath}`);
-    const sarifContent = await readFile(sarifFilePath, 'utf-8');
-
-    // 2. Parse, deduplicate, and limit targets
-    let targets = parseSARIF(sarifContent);
-    targets = deduplicateTargets(targets);
-
-    if (checkTarget.maxTargets !== undefined) {
-      targets = limitTargets(targets, checkTarget.maxTargets);
-    }
-
-    // 3. If no targets, return PASS
-    if (targets.length === 0) {
-      logProgress(TAG, 'Result: PASS (no findings to validate)');
-      return {
-        summary: {
-          checkId,
-          checkName,
-          status: 'PASS',
-          issuesFound: 0,
-          executionTime: checkTimer.elapsed(),
-          targetsAnalyzed: 0,
-        },
-        issues: [],
-      };
-    }
-
-    // 4. Resolve effective concurrency: per-check > options > default
-    const effectiveConcurrency =
-      checkTarget.concurrency ?? optionsConcurrency ?? DEFAULT_CONCURRENCY;
-
-    logProgress(TAG, `Found ${targets.length} findings to validate (concurrency: ${effectiveConcurrency})`);
-
-    // 5. Build base prompt using the sarif-validation-instructions generic prompt
-    const basePrompt = await buildPrompt(checkInstructions, configDir, 'sarif-validation-instructions.md');
-    let completedCount = 0;
-    const abortHandle: AbortHandle = { aborted: false };
-
-    const targetResults = await mapWithConcurrency(
-      targets,
-      effectiveConcurrency,
-      async (target, idx) => {
-        const label = `[finding ${idx + 1}/${targets.length}]`;
-        try {
-          const snippetSection = target.snippet ? `\n- Code snippet from tool: ${target.snippet}` : '';
-          const prompt = basePrompt + `\n\nFINDING DETAILS:
-
-- File: ${target.file}
-- Lines: ${target.startLine}-${target.endLine}
-- Tool's finding description: ${target.message}${snippetSection}
-
-You MUST:
-- Analyze ONLY this specific finding — do not search for or report issues at other locations
-- You may read other files to understand context (e.g., imports, type definitions, data flow), but only report issues for this finding
-- If this finding is a false positive (not actually vulnerable), return {"issues": []}
-- Do NOT scan the broader repository for other vulnerability patterns
-`;
-
-          logDebug(TAG, `${label} Validating finding: ${target.file}:${target.startLine}-${target.endLine}`);
-          const aiResponse = await aiProvider.executeCheck(prompt, repositoryPath, label);
-
-          const parsed = aiResponse.parsed ?? parseAIResponse(aiResponse.raw);
-
-          if (!parsed) {
-            logDebug(TAG, `${label} Finding returned malformed response`);
-            return { issues: [] as SecurityIssue[], error: true, flagged: false, tokenUsage: aiResponse.tokenUsage };
-          }
-
-          const issues = await Promise.all(
-            parsed.issues.map((aiIssue) =>
-              enrichIssue(aiIssue, checkId, checkName, repositoryPath, checkMetadata),
-            ),
-          );
-          return { issues, error: false, flagged: parsed.flagged === true, tokenUsage: aiResponse.tokenUsage };
-        } catch (err) {
-          if (err instanceof FatalProviderError) {
-            abortHandle.aborted = true;
-            abortHandle.reason = err;
-            throw err;
-          }
-          const errorMsg = err instanceof Error ? err.message : String(err);
-          logDebug(TAG, `${label} Finding error: ${errorMsg}`);
-          return { issues: [] as SecurityIssue[], error: true, flagged: false, tokenUsage: undefined };
-        } finally {
-          completedCount++;
-          logProgress(TAG, `Progress: ${completedCount}/${targets.length} findings validated`);
-        }
-      },
-      abortHandle,
-    );
-
-    // 6. Aggregate results
-    const allIssues: SecurityIssue[] = [];
-    let hasErrors = false;
-    let hasFlagged = false;
-    const targetTokenUsages: (TokenUsage | undefined)[] = [];
-    for (const result of targetResults) {
-      allIssues.push(...result.issues);
-      if (result.error) hasErrors = true;
-      if (result.flagged) hasFlagged = true;
-      targetTokenUsages.push(result.tokenUsage);
-    }
-
-    // 7. Determine status: FAIL > FLAG > ERROR > PASS
-    const executionTime = checkTimer.elapsed();
-    let status: 'PASS' | 'FAIL' | 'FLAG' | 'ERROR';
-    if (allIssues.length > 0) {
-      status = 'FAIL';
-    } else if (hasFlagged) {
-      status = 'FLAG';
-    } else if (hasErrors) {
-      status = 'ERROR';
-    } else {
-      status = 'PASS';
-    }
-
-    logProgress(TAG, `Result: ${status} (${allIssues.length} issues, ${targets.length} findings validated)`);
-
-    return {
-      summary: {
-        checkId,
-        checkName,
-        status,
-        issuesFound: allIssues.length,
-        executionTime,
-        targetsAnalyzed: targets.length,
-        tokenUsage: sumTokenUsage(targetTokenUsages),
-      },
-      issues: allIssues,
-    };
-  } catch (err) {
-    if (err instanceof FatalProviderError) {
-      throw err;
-    }
-    const executionTime = checkTimer.elapsed();
-    const errorMsg = err instanceof Error ? err.message : String(err);
-    logProgress(TAG, `Result: ERROR (${errorMsg})`);
-    return {
-      summary: {
-        checkId,
-        checkName,
-        status: 'ERROR',
-        issuesFound: 0,
-        executionTime,
-        error: errorMsg,
-      },
-      issues: [],
-    };
-  }
-}
-
-/**
  * Run multiple security checks and return aggregated ScanResults.
  */
 export async function runMultiScan(options: MultiScanOptions): Promise<ScanResults> {
-  const { repositoryPath, checks, aiProvider, aiModelName, aiProviderName, concurrency, configDir, genericPrompt, sarifFile } = options;
+  const { repositoryPath, checks, aiProvider, aiModelName, aiProviderName, concurrency, configDir, genericPrompt } = options;
   const scanTimer = createTimer();
   const scanId = generateScanId();
   const startTime = new Date();
@@ -851,6 +678,10 @@ export async function runMultiScan(options: MultiScanOptions): Promise<ScanResul
   const allCheckSummaries: CheckExecutionSummary[] = [];
   const allIssues: SecurityIssue[] = [];
 
+  // Track all models used during the scan
+  const modelsUsed = new Set<string>();
+  if (aiModelName) modelsUsed.add(aiModelName);
+
   // Execute checks sequentially
   for (let ci = 0; ci < checks.length; ci++) {
     const { check, details } = checks[ci];
@@ -858,6 +689,10 @@ export async function runMultiScan(options: MultiScanOptions): Promise<ScanResul
       severity: check.severity,
       confidence: check.confidence,
     };
+
+    // Apply per-check model override if specified
+    const previousModel = applyPerCheckModel(check, aiProvider, aiModelName);
+    if (check.model) modelsUsed.add(check.model);
 
     try {
       const { summary: checkSummary, issues } = await executeSingleCheck(
@@ -870,7 +705,6 @@ export async function runMultiScan(options: MultiScanOptions): Promise<ScanResul
         concurrency,
         configDir,
         genericPrompt,
-        sarifFile,
       );
 
       allCheckSummaries.push(checkSummary);
@@ -906,6 +740,9 @@ export async function runMultiScan(options: MultiScanOptions): Promise<ScanResul
       // Non-fatal errors should not reach here (executeSingleCheck catches them),
       // but handle gracefully just in case.
       throw err;
+    } finally {
+      // Restore the global model after per-check override
+      restoreModel(aiProvider, previousModel);
     }
   }
 
@@ -938,7 +775,7 @@ export async function runMultiScan(options: MultiScanOptions): Promise<ScanResul
     startTime: startTime.toISOString(),
     endTime: endTime.toISOString(),
     aiProvider: aiProvider
-      ? { name: aiProviderName ?? 'claude-code', models: aiModelName ? [aiModelName] : [DEFAULT_AI_MODEL] }
+      ? { name: aiProviderName ?? 'claude-code', models: modelsUsed.size > 0 ? [...modelsUsed] : [DEFAULT_AI_MODEL] }
       : { name: 'none', models: [] },
     tokenUsage: aggregateTokenUsage,
   };

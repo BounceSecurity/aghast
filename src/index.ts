@@ -18,13 +18,16 @@ import {
 } from './check-library.js';
 import { analyzeRepository } from './repository-analyzer.js';
 import { loadRuntimeConfig } from './runtime-config.js';
-import { logProgress, logDebug, setLogLevel, createTimer } from './logging.js';
+import { logProgress, logDebug, setLogLevel, createTimer, isValidLogLevel, initFileHandler, closeAllHandlers, getAvailableLogTypes } from './logging.js';
+import type { LogLevel } from './logging.js';
 import { MOCK_MODEL_NAME, DEFAULT_AI_MODEL, type AIProvider } from './types.js';
 import { getFormatter } from './formatters/index.js';
 import { verifySemgrepInstalled } from './semgrep-runner.js';
+import { verifyOpenAntInstalled } from './openant-runner.js';
 import { MockAIProvider } from './mock-ai-provider.js';
 import { ERROR_CODES, formatError, formatFatalError } from './error-codes.js';
 import { colorStatus } from './colors.js';
+import { getCheckType } from './check-types.js';
 import { createRequire } from 'node:module';
 
 const TAG = 'aghast';
@@ -53,7 +56,7 @@ Run security checks against a repository.
 Arguments:
   <repo-path>                Path to the repository to scan
 
-Options:
+General options:
   --config-dir <path>        Config directory containing checks-config.json,
                              checks/ folder, and optionally runtime-config.json.
                              Required unless AGHAST_CONFIG_DIR is set.
@@ -61,14 +64,16 @@ Options:
                              (default: <repo-path>/security_checks_results.<ext>)
   --output-format json|sarif Output format (default: json)
   --fail-on-check-failure    Exit with code 1 if any check FAILs or ERRORs
-  --debug                    Enable verbose debug output
+  --debug                    Shorthand for --log-level debug
+  --log-level <level>        Console log level: error, warn, info, debug, trace
+                             (default: info)
+  --log-file <path>          Write all log output to a file (always at trace level
+                             unless overridden by --log-type)
+  --log-type <type>          Log file handler type (default: file).
+                             Available types: file
   --model <model>            AI model override (e.g. claude-sonnet-4-20250514)
   --ai-provider <name>       AI provider name (default: claude-code)
   --generic-prompt <file>    Generic prompt template filename in prompts/ dir
-  --sarif-file <path>        Path to SARIF file for sarif-verify checks
-  --runtime-config <path>    Path to runtime config file (replaces individual flags
-                             for persistent configuration)
-  -h, --help                 Show this help message
 
 Environment variables:
   ANTHROPIC_API_KEY           API key for Claude (required for AI-based checks)
@@ -76,44 +81,56 @@ Environment variables:
   AGHAST_AI_MODEL             AI model override (CLI --model takes precedence)
   AGHAST_GENERIC_PROMPT       Generic prompt template filename (CLI --generic-prompt takes precedence)
   AGHAST_DEBUG                Set to "true" to enable debug output (same as --debug)
+  AGHAST_LOG_LEVEL            Console log level (CLI --log-level takes precedence)
+  AGHAST_LOG_FILE             Log file path (CLI --log-file takes precedence)
+  AGHAST_LOG_TYPE             Log file handler type (CLI --log-type takes precedence)
 
 Examples:
   aghast scan ./my-repo --config-dir ./my-checks
   aghast scan ./my-repo --config-dir ./my-checks --output results.sarif --output-format sarif
   aghast scan ./my-repo --config-dir ./my-checks --fail-on-check-failure --debug
+  aghast scan ./my-repo --config-dir ./my-checks --log-file scan.log --log-level warn
   aghast scan ./my-repo --config-dir ./my-checks --model claude-sonnet-4-20250514`;
 
 function parseArgs(args: string[]): {
-  repositoryPath: string;
+  repositoryPath?: string;
   configDir?: string;
   outputFormat?: string;
   outputPath?: string;
   failOnCheckFailure: boolean;
   debug: boolean;
+  logLevel?: string;
+  logFile?: string;
+  logType?: string;
   runtimeConfigPath?: string;
   model?: string;
   aiProvider?: string;
   genericPrompt?: string;
-  sarifFile?: string;
 } {
   if (args.length < 1 || args[0] === '--help' || args[0] === '-h') {
     console.log(SCAN_HELP);
     process.exit(0);
   }
 
-  const repositoryPath = resolve(args[0]);
+  // First positional arg is repo-path
+  const firstArg = args[0];
+  const repositoryPath = firstArg && !firstArg.startsWith('--') ? resolve(firstArg) : undefined;
+  const startIdx = repositoryPath ? 1 : 0;
+
   let configDir: string | undefined;
   let outputFormat: string | undefined;
   let outputPath: string | undefined;
   const failOnCheckFailure = args.includes('--fail-on-check-failure');
   const debug = args.includes('--debug');
+  let logLevel: string | undefined;
+  let logFile: string | undefined;
+  let logType: string | undefined;
   let runtimeConfigPath: string | undefined;
   let model: string | undefined;
   let aiProvider: string | undefined;
   let genericPrompt: string | undefined;
-  let sarifFile: string | undefined;
 
-  for (let i = 1; i < args.length; i++) {
+  for (let i = startIdx; i < args.length; i++) {
     switch (args[i]) {
       case '--config-dir': {
         configDir = args[i + 1];
@@ -181,13 +198,31 @@ function parseArgs(args: string[]): {
         i++;
         break;
       }
-      case '--sarif-file': {
-        sarifFile = args[i + 1];
-        if (!sarifFile) {
-          console.error(formatError(ERROR_CODES.E1001, '--sarif-file requires a path argument'));
+      case '--log-level': {
+        logLevel = args[i + 1];
+        if (!logLevel) {
+          console.error(formatError(ERROR_CODES.E1001, '--log-level requires a level argument (error, warn, info, debug, trace)'));
           process.exit(1);
         }
-        sarifFile = resolve(sarifFile);
+        i++;
+        break;
+      }
+      case '--log-file': {
+        logFile = args[i + 1];
+        if (!logFile) {
+          console.error(formatError(ERROR_CODES.E1001, '--log-file requires a path argument'));
+          process.exit(1);
+        }
+        logFile = resolve(logFile);
+        i++;
+        break;
+      }
+      case '--log-type': {
+        logType = args[i + 1];
+        if (!logType) {
+          console.error(formatError(ERROR_CODES.E1001, '--log-type requires a type argument'));
+          process.exit(1);
+        }
         i++;
         break;
       }
@@ -197,8 +232,8 @@ function parseArgs(args: string[]): {
 
   return {
     repositoryPath, configDir, outputPath, outputFormat,
-    failOnCheckFailure, debug, runtimeConfigPath, model, aiProvider,
-    genericPrompt, sarifFile,
+    failOnCheckFailure, debug, logLevel, logFile, logType,
+    runtimeConfigPath, model, aiProvider, genericPrompt,
   };
 }
 
@@ -283,9 +318,32 @@ export async function runScan(args: string[]): Promise<void> {
     process.exit(1);
   }
 
-  // Set log level: --debug flag or AGHAST_DEBUG env var enables debug
+  // Resolve log level: --log-level > AGHAST_LOG_LEVEL > runtime config > --debug/AGHAST_DEBUG > default
   const debug = parsed.debug || process.env.AGHAST_DEBUG === 'true';
-  setLogLevel(debug ? 'debug' : 'info');
+  const resolvedLogLevel = parsed.logLevel ?? (process.env.AGHAST_LOG_LEVEL || undefined) ?? runtimeConfig.logging?.level ?? (debug ? 'debug' : 'info');
+  if (resolvedLogLevel !== 'silent' && !isValidLogLevel(resolvedLogLevel)) {
+    console.error(formatError(ERROR_CODES.E1001, `Invalid log level "${resolvedLogLevel}". Valid levels: error, warn, info, debug, trace`));
+    process.exit(1);
+  }
+  setLogLevel(resolvedLogLevel as LogLevel | 'silent');
+
+  // Resolve log file: --log-file > AGHAST_LOG_FILE > runtime config
+  const resolvedLogFile = parsed.logFile ?? (process.env.AGHAST_LOG_FILE || undefined) ?? (runtimeConfig.logging?.logFile ? resolve(runtimeConfig.logging.logFile) : undefined);
+  if (resolvedLogFile) {
+    const resolvedLogType = parsed.logType ?? (process.env.AGHAST_LOG_TYPE || undefined) ?? runtimeConfig.logging?.logType ?? 'file';
+    const availableTypes = getAvailableLogTypes();
+    if (!availableTypes.includes(resolvedLogType)) {
+      console.error(formatError(ERROR_CODES.E1001, `Unknown log type "${resolvedLogType}". Available types: ${availableTypes.join(', ')}`));
+      process.exit(1);
+    }
+    initFileHandler(resolve(resolvedLogFile), resolvedLogType);
+  }
+
+  // Resolve repository path — required
+  if (!parsed.repositoryPath) {
+    console.error(formatError(ERROR_CODES.E1003, '<repo-path> is required'));
+    process.exit(1);
+  }
 
   // Validate repository path exists and is a directory
   try {
@@ -334,8 +392,9 @@ export async function runScan(args: string[]): Promise<void> {
   const allChecks = await resolveChecks(registry, checkFolders);
 
   // Analyze repository to get remote URL for check filtering
-  const repoAnalysis = await analyzeRepository(parsed.repositoryPath);
-  const repoUrl = repoAnalysis.repository.remoteUrl ?? parsed.repositoryPath;
+  const effectiveRepoPath = parsed.repositoryPath;
+  const repoAnalysis = await analyzeRepository(effectiveRepoPath);
+  const repoUrl = repoAnalysis?.repository.remoteUrl ?? effectiveRepoPath;
 
   const matchingChecks = filterChecksForRepository(allChecks, repoUrl);
   logProgress(TAG, `Found ${matchingChecks.length} matching checks (of ${allChecks.length} total)`);
@@ -356,8 +415,10 @@ export async function runScan(args: string[]): Promise<void> {
 
     // checkTarget rules already resolved by resolveChecks — no additional path resolution needed
 
-    // semgrep-only and sarif-verify checks may have no instructions markdown — use synthetic details
-    if (check.checkTarget?.type === 'semgrep-only' || (check.checkTarget?.type === 'sarif-verify' && !check.instructionsFile)) {
+    // Checks that don't require instructions use synthetic details (unless they provided one optionally).
+    // Discovery types with self-contained prompts (openant, sarif) also don't need instructions.
+    const selfContainedDiscovery = check.checkTarget?.discovery === 'openant' || check.checkTarget?.discovery === 'sarif';
+    if ((!getCheckType(check.checkTarget?.type).needsInstructions || selfContainedDiscovery) && !check.instructionsFile) {
       checksWithDetails.push({
         check,
         details: { id: check.id, name: check.name, overview: '', content: '' },
@@ -369,11 +430,26 @@ export async function runScan(args: string[]): Promise<void> {
     checksWithDetails.push({ check, details });
   }
 
+  // ─── Validate --generic-prompt with mixed discovery types ───
+  if (genericPrompt) {
+    const discoveryTypes = new Set<string>();
+    for (const c of checksWithDetails) {
+      const d = c.check.checkTarget?.discovery;
+      if (d) discoveryTypes.add(d);
+    }
+    if (discoveryTypes.size > 1) {
+      console.error(formatError(
+        ERROR_CODES.E2004,
+        `--generic-prompt cannot be used when checks have different discovery types (found: ${[...discoveryTypes].join(', ')}). Each discovery type uses its own default generic prompt.`,
+      ));
+      process.exit(1);
+    }
+  }
+
   // ─── Determine which prerequisites are needed ───
-  const needsAI = checksWithDetails.some(c => c.check.checkTarget?.type !== 'semgrep-only');
-  const needsSemgrep = checksWithDetails.some(c =>
-    c.check.checkTarget?.type === 'semgrep' || c.check.checkTarget?.type === 'semgrep-only',
-  );
+  const needsAI = checksWithDetails.some(c => getCheckType(c.check.checkTarget?.type).needsAI);
+  const needsSemgrep = checksWithDetails.some(c => c.check.checkTarget?.discovery === 'semgrep');
+  const needsOpenant = checksWithDetails.some(c => c.check.checkTarget?.discovery === 'openant');
 
   // ─── Conditional AI provider setup ───
   const aiProviderName = parsed.aiProvider ?? runtimeConfig.aiProvider?.name ?? DEFAULT_PROVIDER_NAME;
@@ -401,7 +477,7 @@ export async function runScan(args: string[]): Promise<void> {
   let modelName: string | undefined;
   if (needsAI) {
     ({ provider, modelName } = await createProvider(useMock, aiProviderName, modelOverride));
-    if (debug) {
+    if (resolvedLogLevel === 'debug' || resolvedLogLevel === 'trace') {
       provider.enableDebug?.();
     }
     logProgress(TAG, `Using model: ${modelName}`);
@@ -417,30 +493,39 @@ export async function runScan(args: string[]): Promise<void> {
     }
   }
 
+  // ─── Conditional OpenAnt verification ───
+  if (needsOpenant && !process.env.AGHAST_MOCK_OPENANT) {
+    try {
+      await verifyOpenAntInstalled();
+    } catch (err) {
+      console.error(formatError(ERROR_CODES.E6001, err instanceof Error ? err.message : String(err)));
+      process.exit(1);
+    }
+  }
+
   const results = await runMultiScan({
-    repositoryPath: parsed.repositoryPath,
+    repositoryPath: effectiveRepoPath,
     checks: checksWithDetails,
     aiProvider: provider,
     aiModelName: needsAI ? modelName : undefined,
-    repositoryInfo: repoAnalysis.repository,
+    repositoryInfo: repoAnalysis?.repository,
     aiProviderName: needsAI ? (useMock ? 'mock' : aiProviderName) : undefined,
     configDir,
     genericPrompt,
-    sarifFile: parsed.sarifFile,
   });
 
   // Resolve output path: --output flag > runtime config dir > default
-  let outputPath: string;
+  let resolvedOutputPath: string;
   if (parsed.outputPath) {
-    outputPath = parsed.outputPath;
+    resolvedOutputPath = parsed.outputPath;
   } else if (runtimeConfig.reporting?.outputDirectory) {
     const dir = resolve(runtimeConfig.reporting.outputDirectory);
-    outputPath = resolve(dir, 'security_checks_results' + formatter.fileExtension);
+    resolvedOutputPath = resolve(dir, 'security_checks_results' + formatter.fileExtension);
   } else {
-    outputPath = resolve(parsed.repositoryPath, 'security_checks_results' + formatter.fileExtension);
+    resolvedOutputPath = resolve(effectiveRepoPath, 'security_checks_results' + formatter.fileExtension);
   }
-  await mkdir(dirname(outputPath), { recursive: true });
-  await writeFile(outputPath, formatter.format(results), 'utf-8');
+  await mkdir(dirname(resolvedOutputPath), { recursive: true });
+  await writeFile(resolvedOutputPath, formatter.format(results), 'utf-8');
 
   // Summary output
   const statusIcon =
@@ -466,24 +551,26 @@ export async function runScan(args: string[]): Promise<void> {
     console.log(`  Tokens:        ${results.tokenUsage.totalTokens.toLocaleString()} (in: ${results.tokenUsage.inputTokens.toLocaleString()}, out: ${results.tokenUsage.outputTokens.toLocaleString()})`);
   }
   console.log(`  Duration:      ${globalTimer.elapsedStr()}`);
-  console.log(`  Results:       ${outputPath}`);
+  console.log(`  Results:       ${resolvedOutputPath}`);
   console.log('='.repeat(60));
 
   // Exit code based on --fail-on-check-failure flag or runtime config (spec Section 9.3)
   const failOnCheckFailure = parsed.failOnCheckFailure || runtimeConfig.failOnCheckFailure === true;
   const shouldFail =
     failOnCheckFailure && (results.summary.failedChecks > 0 || results.summary.errorChecks > 0);
+  await closeAllHandlers();
   process.exit(shouldFail ? 1 : 0);
 }
 
 // Auto-run when executed directly (pnpm scan / tsx src/index.ts), but not when imported by cli.ts.
 if (!process.env._AGHAST_CLI) {
-  runScan(process.argv.slice(2)).catch((err) => {
+  runScan(process.argv.slice(2)).catch(async (err) => {
     const require = createRequire(import.meta.url);
     const pkg = require('../package.json') as { version: string };
     console.error('');
     console.error(formatFatalError(err instanceof Error ? err.message : String(err), pkg.version));
     logDebug(TAG, 'Error details', err);
+    await closeAllHandlers();
     process.exit(1);
   });
 }

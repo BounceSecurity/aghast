@@ -129,7 +129,8 @@ describe('loadCheckDefinition', () => {
   it('loads check with checkTarget', async () => {
     const def = await loadCheckDefinition(resolve(fixtureChecksDir, 'aghast-mt-sqli'));
     assert.ok(def.checkTarget);
-    assert.equal(def.checkTarget!.type, 'semgrep');
+    assert.equal(def.checkTarget!.type, 'targeted');
+    assert.equal(def.checkTarget!.discovery, 'semgrep');
   });
 });
 
@@ -528,85 +529,86 @@ describe('filterCheckPaths', () => {
   });
 });
 
-// --- semgrep-only checks ---
+// --- static checks (formerly semgrep-only) ---
 
-describe('validateCheck (semgrep-only)', () => {
-  it('semgrep-only check without instructionsFile passes validation', async () => {
+describe('validateCheck (static)', () => {
+  it('static check without instructionsFile passes validation', async () => {
     const check = makeCheck({
       id: 'aghast-sgo',
       instructionsFile: undefined,
-      checkTarget: { type: 'semgrep-only', rules: 'rule.yaml' },
+      checkTarget: { type: 'static', discovery: 'semgrep', rules: 'rule.yaml' },
     });
     const result = await validateCheck(check, fixturesDir);
     assert.ok(result.valid, `Expected valid, got errors: ${result.errors.join(', ')}`);
     assert.equal(result.errors.length, 0);
   });
 
-  it('non-semgrep-only check without instructionsFile fails validation', async () => {
+  it('non-static check without instructionsFile fails validation', async () => {
     const check = makeCheck({
       id: 'aghast-needs-md',
       instructionsFile: undefined,
     });
     const result = await validateCheck(check, fixturesDir);
-    assert.ok(!result.valid, 'Should fail when non-semgrep-only check lacks instructionsFile');
+    assert.ok(!result.valid, 'Should fail when non-static check lacks instructionsFile');
     assert.ok(result.errors.some((e) => e.includes('instructionsFile')));
   });
 
-  it('semgrep check without instructionsFile fails validation', async () => {
+  it('targeted check without instructionsFile fails validation', async () => {
     const check = makeCheck({
       id: 'aghast-semgrep-check',
       instructionsFile: undefined,
-      checkTarget: { type: 'semgrep', rules: 'rule.yaml' },
+      checkTarget: { type: 'targeted', discovery: 'semgrep', rules: 'rule.yaml' },
     });
     const result = await validateCheck(check, fixturesDir);
-    assert.ok(!result.valid, 'Semgrep (non-only) check should still require instructionsFile');
+    assert.ok(!result.valid, 'Targeted check should require instructionsFile');
     assert.ok(result.errors.some((e) => e.includes('instructionsFile')));
   });
 });
 
-describe('loadCheckDefinition (semgrep-only)', () => {
-  it('loads semgrep-only check without instructionsFile', async () => {
+describe('loadCheckDefinition (static)', () => {
+  it('loads static check without instructionsFile', async () => {
     const def = await loadCheckDefinition(resolve(fixtureChecksDir, 'aghast-semgrep-only'));
     assert.equal(def.id, 'aghast-semgrep-only');
     assert.equal(def.name, 'Semgrep-Only Check');
     assert.equal(def.instructionsFile, undefined);
     assert.ok(def.checkTarget);
-    assert.equal(def.checkTarget!.type, 'semgrep-only');
+    assert.equal(def.checkTarget!.type, 'static');
+    assert.equal(def.checkTarget!.discovery, 'semgrep');
   });
 });
 
-// --- sarif-verify checks ---
+// --- sarif discovery (targeted) checks ---
 
-describe('validateCheck (sarif-verify)', () => {
-  it('sarif-verify check without instructionsFile passes validation', async () => {
+describe('validateCheck (sarif discovery)', () => {
+  it('targeted sarif check with instructionsFile passes validation', async () => {
+    const check = makeCheck({
+      id: 'aghast-sql-injection',
+      checkTarget: { type: 'targeted', discovery: 'sarif', sarifFile: './results.sarif' },
+    });
+    const result = await validateCheck(check, fixturesDir);
+    assert.ok(result.valid, `Expected valid, got errors: ${result.errors.join(', ')}`);
+  });
+
+  it('targeted sarif check without instructionsFile passes validation (sarif has self-contained prompt)', async () => {
     const check = makeCheck({
       id: 'aghast-sv',
       instructionsFile: undefined,
-      checkTarget: { type: 'sarif-verify' },
-    });
-    const result = await validateCheck(check, fixturesDir);
-    assert.ok(result.valid, `Expected valid, got errors: ${result.errors.join(', ')}`);
-    assert.equal(result.errors.length, 0);
-  });
-
-  it('sarif-verify check with instructionsFile passes validation', async () => {
-    const check = makeCheck({
-      id: 'aghast-sql-injection',
-      checkTarget: { type: 'sarif-verify' },
+      checkTarget: { type: 'targeted', discovery: 'sarif', sarifFile: './results.sarif' },
     });
     const result = await validateCheck(check, fixturesDir);
     assert.ok(result.valid, `Expected valid, got errors: ${result.errors.join(', ')}`);
   });
 });
 
-describe('loadCheckDefinition (sarif-verify)', () => {
-  it('loads sarif-verify check without instructionsFile', async () => {
+describe('loadCheckDefinition (sarif discovery)', () => {
+  it('loads sarif discovery check with instructionsFile', async () => {
     const def = await loadCheckDefinition(resolve(fixtureChecksDir, 'aghast-sarif-verify'));
     assert.equal(def.id, 'aghast-sarif-verify');
     assert.equal(def.name, 'SARIF Verify Check');
-    assert.equal(def.instructionsFile, undefined);
+    assert.equal(def.instructionsFile, 'aghast-sarif-verify.md');
     assert.ok(def.checkTarget);
-    assert.equal(def.checkTarget!.type, 'sarif-verify');
+    assert.equal(def.checkTarget!.type, 'targeted');
+    assert.equal(def.checkTarget!.discovery, 'sarif');
   });
 });
 

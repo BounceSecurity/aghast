@@ -482,7 +482,7 @@ function makeMultiTargetCheck(
       repositories: [],
       instructionsFile: 'unused.md',
       checkTarget: {
-        type: 'semgrep',
+        type: 'targeted', discovery: 'semgrep',
         rules: 'unused-in-mock.yaml',
       },
       ...overrides,
@@ -642,7 +642,7 @@ describe('runMultiScan (multi-target checks)', () => {
     const results = await runMultiScan({
       repositoryPath: fixtureRepo,
       checks: [makeMultiTargetCheck({
-        checkTarget: { type: 'semgrep', rules: 'unused.yaml', maxTargets: 1 },
+        checkTarget: { type: 'targeted', discovery: 'semgrep', rules: 'unused.yaml', maxTargets: 1 },
       })],
       aiProvider: provider,
     });
@@ -658,7 +658,7 @@ describe('runMultiScan (multi-target checks)', () => {
     const results = await runMultiScan({
       repositoryPath: fixtureRepo,
       checks: [makeMultiTargetCheck({
-        checkTarget: { type: 'semgrep', rules: 'unused.yaml', maxTargets: 2 },
+        checkTarget: { type: 'targeted', discovery: 'semgrep', rules: 'unused.yaml', maxTargets: 2 },
       })],
       aiProvider: provider,
     });
@@ -836,7 +836,7 @@ describe('runMultiScan (concurrency)', () => {
     const results = await runMultiScan({
       repositoryPath: fixtureRepo,
       checks: [makeMultiTargetCheck({
-        checkTarget: { type: 'semgrep', rules: 'unused.yaml', concurrency: 2 },
+        checkTarget: { type: 'targeted', discovery: 'semgrep', rules: 'unused.yaml', concurrency: 2 },
       })],
       aiProvider: provider,
       concurrency: 10,
@@ -892,7 +892,7 @@ describe('runMultiScan (concurrency)', () => {
 
     const results = await runMultiScan({
       repositoryPath: fixtureRepo,
-      checks: [makeMultiTargetCheck({ checkTarget: { type: 'semgrep', rules: 'unused-in-mock.yaml', maxTargets: 1 } })],
+      checks: [makeMultiTargetCheck({ checkTarget: { type: 'targeted', discovery: 'semgrep', rules: 'unused-in-mock.yaml', maxTargets: 1 } })],
       aiProvider: provider,
       concurrency: 5,
     });
@@ -1224,7 +1224,8 @@ function makeSemgrepOnlyCheck(
       name: 'Semgrep-Only Check',
       repositories: [],
       checkTarget: {
-        type: 'semgrep-only',
+        type: 'static',
+        discovery: 'semgrep',
         rules: 'unused-in-mock.yaml',
       },
       severity: 'high',
@@ -1321,7 +1322,7 @@ describe('runMultiScan (semgrep-only checks)', () => {
     const results = await runMultiScan({
       repositoryPath: fixtureRepo,
       checks: [makeSemgrepOnlyCheck({
-        checkTarget: { type: 'semgrep-only', rules: 'unused.yaml', maxTargets: 1 },
+        checkTarget: { type: 'static', discovery: 'semgrep', rules: 'unused.yaml', maxTargets: 1 },
       })],
       aiProvider: provider,
     });
@@ -1507,7 +1508,7 @@ describe('runMultiScan (fatal error abort)', () => {
         name: 'Multi-target Check',
         repositories: [],
         instructionsFile: 'mt-check.md',
-        checkTarget: { type: 'semgrep', rules: 'rule.yaml' },
+        checkTarget: { type: 'targeted', discovery: 'semgrep', rules: 'rule.yaml' },
       },
       details: {
         id: 'mt-check',

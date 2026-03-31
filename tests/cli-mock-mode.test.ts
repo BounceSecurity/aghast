@@ -1003,7 +1003,7 @@ describe('CLI mock mode: concurrency progress output', () => {
 describe('CLI: conditional prerequisite validation', () => {
   afterEach(cleanupOutput);
 
-  it('semgrep-only checks succeed without ANTHROPIC_API_KEY', async () => {
+  it('static checks succeed without ANTHROPIC_API_KEY', async () => {
     const { exitCode, stderr } = await runCLI(
       {
         ANTHROPIC_API_KEY: '',
@@ -1014,7 +1014,7 @@ describe('CLI: conditional prerequisite validation', () => {
       [fixtureRepo, '--config-dir', semgrepOnlyConfigDir],
     );
     assert.equal(exitCode, 0, `Expected exit 0 but got ${exitCode}. stderr: ${stderr}`);
-    assert.ok(!stderr.includes('ANTHROPIC_API_KEY'), 'Should not require API key for semgrep-only checks');
+    assert.ok(!stderr.includes('ANTHROPIC_API_KEY'), 'Should not require API key for static checks');
 
     const results = await readResults();
     const checks = results.checks as Array<Record<string, unknown>>;
@@ -1022,7 +1022,7 @@ describe('CLI: conditional prerequisite validation', () => {
     assert.equal(checks[0].checkId, 'aghast-semgrep-only');
   });
 
-  it('semgrep-only FAIL checks succeed without ANTHROPIC_API_KEY', async () => {
+  it('static FAIL checks succeed without ANTHROPIC_API_KEY', async () => {
     const { exitCode, stderr } = await runCLI(
       {
         ANTHROPIC_API_KEY: '',

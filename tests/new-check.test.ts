@@ -346,9 +346,10 @@ describe('new-check utility', () => {
 
   // ─── Multi-target (Semgrep) tests ─────────────────────────────────────────
 
-  it('creates checkTarget in check.json for semgrep type with explicit rules', async () => {
+  it('creates checkTarget in check.json for targeted/semgrep type with explicit rules', async () => {
     const result = await runNewCheck(allFlags({
-      '--check-type': 'semgrep',
+      '--check-type': 'targeted',
+      '--discovery': 'semgrep',
       '--semgrep-rules': 'rules/sql.yaml',
     }));
 
@@ -356,14 +357,16 @@ describe('new-check utility', () => {
 
     const checkDef = JSON.parse(await readFile(resolve(checksDir, 'aghast-test', 'aghast-test.json'), 'utf-8'));
     assert.deepEqual(checkDef.checkTarget, {
-      type: 'semgrep',
+      type: 'targeted',
+      discovery: 'semgrep',
       rules: 'rules/sql.yaml',
     });
   });
 
   it('creates checkTarget with array for multiple semgrep rules', async () => {
     const result = await runNewCheck(allFlags({
-      '--check-type': 'semgrep',
+      '--check-type': 'targeted',
+      '--discovery': 'semgrep',
       '--semgrep-rules': 'rules/a.yaml,rules/b.yaml',
     }));
 
@@ -371,14 +374,16 @@ describe('new-check utility', () => {
 
     const checkDef = JSON.parse(await readFile(resolve(checksDir, 'aghast-test', 'aghast-test.json'), 'utf-8'));
     assert.deepEqual(checkDef.checkTarget, {
-      type: 'semgrep',
+      type: 'targeted',
+      discovery: 'semgrep',
       rules: ['rules/a.yaml', 'rules/b.yaml'],
     });
   });
 
   it('includes maxTargets in checkTarget when provided', async () => {
     const result = await runNewCheck(allFlags({
-      '--check-type': 'semgrep',
+      '--check-type': 'targeted',
+      '--discovery': 'semgrep',
       '--semgrep-rules': 'r.yaml',
       '--max-targets': '10',
     }));
@@ -387,14 +392,15 @@ describe('new-check utility', () => {
 
     const checkDef = JSON.parse(await readFile(resolve(checksDir, 'aghast-test', 'aghast-test.json'), 'utf-8'));
     assert.deepEqual(checkDef.checkTarget, {
-      type: 'semgrep',
+      type: 'targeted',
+      discovery: 'semgrep',
       rules: 'r.yaml',
       maxTargets: 10,
     });
   });
 
-  it('generates <id>.yaml inside check folder when type is semgrep and no rules provided', async () => {
-    const flags = allFlags({ '--check-type': 'semgrep', '--language': 'python' });
+  it('generates <id>.yaml inside check folder when type is targeted/semgrep and no rules provided', async () => {
+    const flags = allFlags({ '--check-type': 'targeted', '--discovery': 'semgrep', '--language': 'python' });
 
     const result = await runNewCheck(flags);
 
@@ -410,7 +416,8 @@ describe('new-check utility', () => {
 
     // Verify check.json points to rule.yaml
     const checkDef = JSON.parse(await readFile(resolve(checksDir, 'aghast-test', 'aghast-test.json'), 'utf-8'));
-    assert.equal(checkDef.checkTarget.type, 'semgrep');
+    assert.equal(checkDef.checkTarget.type, 'targeted');
+    assert.equal(checkDef.checkTarget.discovery, 'semgrep');
     assert.equal(checkDef.checkTarget.rules, 'aghast-test.yaml');
 
     // Verify stdout mentions the created template
@@ -450,7 +457,8 @@ describe('new-check utility', () => {
 
   it('rejects invalid maxTargets', async () => {
     const result = await runNewCheck(allFlags({
-      '--check-type': 'semgrep',
+      '--check-type': 'targeted',
+      '--discovery': 'semgrep',
       '--semgrep-rules': 'r.yaml',
       '--max-targets': 'abc',
     }));
@@ -465,7 +473,7 @@ describe('new-check utility', () => {
   // ─── Semgrep test file scaffolding ────────────────────────────────────────
 
   it('creates Python test file inside check folder', async () => {
-    const flags = allFlags({ '--check-type': 'semgrep', '--language': 'python' });
+    const flags = allFlags({ '--check-type': 'targeted', '--discovery': 'semgrep', '--language': 'python' });
     const result = await runNewCheck(flags);
 
     assert.equal(result.exitCode, 0, `CLI failed: ${result.stderr}`);
@@ -484,7 +492,7 @@ describe('new-check utility', () => {
   });
 
   it('creates JavaScript test file inside check folder', async () => {
-    const flags = allFlags({ '--check-type': 'semgrep', '--language': 'js' });
+    const flags = allFlags({ '--check-type': 'targeted', '--discovery': 'semgrep', '--language': 'js' });
     const result = await runNewCheck(flags);
 
     assert.equal(result.exitCode, 0, `CLI failed: ${result.stderr}`);
@@ -503,7 +511,8 @@ describe('new-check utility', () => {
 
   it('rejects invalid language value', async () => {
     const result = await runNewCheck(allFlags({
-      '--check-type': 'semgrep',
+      '--check-type': 'targeted',
+      '--discovery': 'semgrep',
       '--language': 'ruby',
     }));
 
@@ -516,7 +525,8 @@ describe('new-check utility', () => {
 
   it('does not create <id>.yaml/test files when --semgrep-rules is provided', async () => {
     const result = await runNewCheck(allFlags({
-      '--check-type': 'semgrep',
+      '--check-type': 'targeted',
+      '--discovery': 'semgrep',
       '--semgrep-rules': 'rules/existing.yaml',
       '--language': 'python',
     }));
@@ -535,7 +545,7 @@ describe('new-check utility', () => {
   });
 
   it('accepts language aliases (py for python)', async () => {
-    const flags = allFlags({ '--check-type': 'semgrep', '--language': 'py' });
+    const flags = allFlags({ '--check-type': 'targeted', '--discovery': 'semgrep', '--language': 'py' });
     const result = await runNewCheck(flags);
 
     assert.equal(result.exitCode, 0, `CLI failed: ${result.stderr}`);
@@ -595,6 +605,7 @@ describe('new-check utility', () => {
         'Retry Test Check',     // Check name
         '',                     // Severity (optional, skip)
         '',                     // Confidence (optional, skip)
+        '',                     // Model (optional, skip)
         '',                     // Repositories (optional, skip)
         'Overview text',        // Check overview
         'Item A,Item B',        // Check items
@@ -617,25 +628,28 @@ describe('new-check utility', () => {
     assert.equal(registry.checks[0].id, 'aghast-retry-test');
   });
 
-  // ─── Semgrep-only tests ──────────────────────────────────────────────────
+  // ─── Static checks (formerly semgrep-only) ──────────────────────────────
 
-  it('semgrep-only type creates correct checkTarget with no instructionsFile', async () => {
+  it('static type creates correct checkTarget with no instructionsFile', async () => {
     const result = await runNewCheck(allFlags({
-      '--check-type': 'semgrep-only',
+      '--check-type': 'static',
+      '--discovery': 'semgrep',
       '--semgrep-rules': 'rules/detect.yaml',
     }));
 
     assert.equal(result.exitCode, 0, `CLI failed: ${result.stderr}`);
 
     const checkDef = JSON.parse(await readFile(resolve(checksDir, 'aghast-test', 'aghast-test.json'), 'utf-8'));
-    assert.equal(checkDef.checkTarget.type, 'semgrep-only');
+    assert.equal(checkDef.checkTarget.type, 'static');
+    assert.equal(checkDef.checkTarget.discovery, 'semgrep');
     assert.equal(checkDef.checkTarget.rules, 'rules/detect.yaml');
-    assert.equal(checkDef.instructionsFile, undefined, 'semgrep-only should not have instructionsFile');
+    assert.equal(checkDef.instructionsFile, undefined, 'static should not have instructionsFile');
   });
 
-  it('semgrep-only does not generate .md file', async () => {
+  it('static does not generate .md file', async () => {
     const result = await runNewCheck(allFlags({
-      '--check-type': 'semgrep-only',
+      '--check-type': 'static',
+      '--discovery': 'semgrep',
       '--semgrep-rules': 'rules/detect.yaml',
     }));
 
@@ -644,13 +658,14 @@ describe('new-check utility', () => {
     // No .md should exist
     const { readdirSync } = await import('node:fs');
     const files = readdirSync(resolve(checksDir, 'aghast-test'));
-    assert.ok(!files.includes('aghast-test.md'), 'semgrep-only should not generate .md file');
+    assert.ok(!files.includes('aghast-test.md'), 'static should not generate .md file');
     assert.ok(files.includes('aghast-test.json'), 'Should still have .json');
   });
 
-  it('semgrep-only with generated rule template creates .yaml + test file', async () => {
+  it('static with generated rule template creates .yaml + test file', async () => {
     const result = await runNewCheck(allFlags({
-      '--check-type': 'semgrep-only',
+      '--check-type': 'static',
+      '--discovery': 'semgrep',
       '--language': 'python',
     }));
 
@@ -670,38 +685,92 @@ describe('new-check utility', () => {
     // Verify no .md file
     const { readdirSync } = await import('node:fs');
     const files = readdirSync(resolve(checksDir, 'aghast-test'));
-    assert.ok(!files.includes('aghast-test.md'), 'semgrep-only should not generate .md file');
+    assert.ok(!files.includes('aghast-test.md'), 'static should not generate .md file');
 
     // Verify check.json has correct structure
     const checkDef = JSON.parse(await readFile(resolve(checksDir, 'aghast-test', 'aghast-test.json'), 'utf-8'));
-    assert.equal(checkDef.checkTarget.type, 'semgrep-only');
+    assert.equal(checkDef.checkTarget.type, 'static');
+    assert.equal(checkDef.checkTarget.discovery, 'semgrep');
     assert.equal(checkDef.checkTarget.rules, 'aghast-test.yaml');
     assert.equal(checkDef.instructionsFile, undefined);
   });
 
-  it('sarif-verify type creates correct checkTarget with no instructionsFile', async () => {
+  // ─── Targeted sarif checks (self-contained prompt, no instructions needed) ─
+
+  it('targeted sarif creates correct checkTarget without instructionsFile', async () => {
     const result = await runNewCheck(allFlags({
-      '--check-type': 'sarif-verify',
+      '--check-type': 'targeted',
+      '--discovery': 'sarif',
+      '--sarif-file': './sast-results.sarif',
     }));
 
     assert.equal(result.exitCode, 0, `CLI failed: ${result.stderr}`);
 
     const checkDef = JSON.parse(await readFile(resolve(checksDir, 'aghast-test', 'aghast-test.json'), 'utf-8'));
-    assert.equal(checkDef.checkTarget.type, 'sarif-verify');
-    assert.equal(checkDef.instructionsFile, undefined, 'sarif-verify should not have instructionsFile');
-    assert.equal(checkDef.checkTarget.rules, undefined, 'sarif-verify should not have rules');
+    assert.equal(checkDef.checkTarget.type, 'targeted');
+    assert.equal(checkDef.checkTarget.discovery, 'sarif');
+    assert.equal(checkDef.instructionsFile, undefined, 'sarif discovery has self-contained prompt');
+    assert.equal(checkDef.checkTarget.rules, undefined, 'sarif should not have rules');
   });
 
-  it('sarif-verify does not generate .md file', async () => {
+  it('targeted sarif does not generate .md file', async () => {
     const result = await runNewCheck(allFlags({
-      '--check-type': 'sarif-verify',
+      '--check-type': 'targeted',
+      '--discovery': 'sarif',
+      '--sarif-file': './sast-results.sarif',
     }));
 
     assert.equal(result.exitCode, 0, `CLI failed: ${result.stderr}`);
 
     const { readdirSync } = await import('node:fs');
     const files = readdirSync(resolve(checksDir, 'aghast-test'));
-    assert.ok(!files.includes('aghast-test.md'), 'sarif-verify should not generate .md file');
+    assert.ok(!files.includes('aghast-test.md'), 'sarif should not generate .md file');
     assert.ok(files.includes('aghast-test.json'), 'Should still have .json');
+  });
+
+  // ─── Targeted openant checks (self-contained prompt, no instructions needed) ─
+
+  it('targeted openant creates correct checkTarget without instructionsFile', async () => {
+    const result = await runNewCheck(allFlags({
+      '--check-type': 'targeted',
+      '--discovery': 'openant',
+    }));
+
+    assert.equal(result.exitCode, 0, `CLI failed: ${result.stderr}`);
+
+    const checkDef = JSON.parse(await readFile(resolve(checksDir, 'aghast-test', 'aghast-test.json'), 'utf-8'));
+    assert.equal(checkDef.checkTarget.type, 'targeted');
+    assert.equal(checkDef.checkTarget.discovery, 'openant');
+    assert.equal(checkDef.instructionsFile, undefined, 'openant discovery has self-contained prompt');
+    assert.equal(checkDef.checkTarget.rules, undefined, 'openant should not have rules');
+  });
+
+  it('targeted openant does not generate .md file', async () => {
+    const result = await runNewCheck(allFlags({
+      '--check-type': 'targeted',
+      '--discovery': 'openant',
+    }));
+
+    assert.equal(result.exitCode, 0, `CLI failed: ${result.stderr}`);
+
+    const { readdirSync } = await import('node:fs');
+    const files = readdirSync(resolve(checksDir, 'aghast-test'));
+    assert.ok(!files.includes('aghast-test.md'), 'openant should not generate .md file');
+    assert.ok(files.includes('aghast-test.json'), 'Should still have .json');
+  });
+
+  it('targeted openant includes maxTargets in checkTarget when provided', async () => {
+    const result = await runNewCheck(allFlags({
+      '--check-type': 'targeted',
+      '--discovery': 'openant',
+      '--max-targets': '25',
+    }));
+
+    assert.equal(result.exitCode, 0, `CLI failed: ${result.stderr}`);
+
+    const checkDef = JSON.parse(await readFile(resolve(checksDir, 'aghast-test', 'aghast-test.json'), 'utf-8'));
+    assert.equal(checkDef.checkTarget.type, 'targeted');
+    assert.equal(checkDef.checkTarget.discovery, 'openant');
+    assert.equal(checkDef.checkTarget.maxTargets, 25);
   });
 });

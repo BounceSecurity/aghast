@@ -3,5 +3,5 @@
   "name": "Semgrep-Only Check",
   "severity": "high",
   "confidence": "high",
-  "checkTarget": { "type": "semgrep-only", "rules": "unused-in-mock.yaml" }
+  "checkTarget": { "type": "static", "discovery": "semgrep", "rules": "unused-in-mock.yaml" }
 }

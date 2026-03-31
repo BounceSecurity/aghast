@@ -11,6 +11,7 @@ import { logProgress, logDebug, logDebugFull, createTimer } from './logging.js';
 const TAG = 'ai-provider';
 const HEARTBEAT_INTERVAL_MS = 15000; // Log heartbeat every 15s if no activity
 const MAX_API_ERROR_RETRIES = 3; // Fail after this many consecutive API errors
+const MAX_ERROR_DETECTION_LENGTH = 200; // Only check short text chunks for SDK error patterns — longer text is AI analysis content
 
 /** Type for the SDK query function — injectable for testing. */
 export type QueryFn = (params: {
@@ -87,6 +88,10 @@ export class ClaudeCodeProvider implements AIProvider {
     return this.model;
   }
 
+  setModel(model: string): void {
+    this.model = model;
+  }
+
   enableDebug(): void {
     this.debugEnabled = true;
   }
@@ -95,14 +100,16 @@ export class ClaudeCodeProvider implements AIProvider {
     instructions: string,
     repositoryPath: string,
     logPrefix?: string,
+    options?: { maxTurns?: number },
   ): Promise<AIResponse> {
     const queryFn = this._queryFn ?? (await import('@anthropic-ai/claude-agent-sdk')).query;
     const timer = createTimer();
     const prefix = logPrefix ? `${logPrefix} ` : '';
+    const effectiveMaxTurns = options?.maxTurns ?? 100;
 
     const prompt = instructions;
 
-    logDebug(TAG, `${prefix}Starting query: model=${this.model}, cwd=${repositoryPath}, promptLen=${prompt.length}`);
+    logDebug(TAG, `${prefix}Starting query: model=${this.model}, cwd=${repositoryPath}, promptLen=${prompt.length}, maxTurns=${effectiveMaxTurns}`);
     if (this.debugEnabled) {
       logDebugFull(TAG, `${prefix}Full prompt sent to AI`, prompt);
     }
@@ -113,7 +120,7 @@ export class ClaudeCodeProvider implements AIProvider {
         model: this.model,
         cwd: repositoryPath,
         allowedTools: ['Read', 'Glob', 'Grep', 'Bash', 'WebSearch', 'WebFetch'],
-        maxTurns: 100,
+        maxTurns: effectiveMaxTurns,
         permissionMode: 'bypassPermissions',
         outputFormat: {
           type: 'json_schema',
@@ -180,16 +187,22 @@ export class ClaudeCodeProvider implements AIProvider {
           if (textChunks.length > 0) {
             logDebug(TAG, `${prefix}Assistant: ${textChunks.join(' | ')}`);
 
-            // Detect rate-limit messages — fail immediately since retrying won't help
-            const rateLimitMatch = textChunks.find((t: string) =>
-              /you've hit your limit|rate limit/i.test(t),
+            // Error detection: only check short text chunks to avoid matching the AI's
+            // own analysis text (e.g., a security finding mentioning "rate limiting").
+            // SDK/API error messages are typically short (under 200 chars), while AI analysis
+            // text is much longer.
+            const shortChunks = textChunks.filter((t: string) => t.length < MAX_ERROR_DETECTION_LENGTH);
+
+            // Detect rate-limit messages — fail immediately since retrying won't help.
+            const rateLimitMatch = shortChunks.find((t: string) =>
+              /you've hit your limit|API Error:\s*429|rate.?limit.?exceeded/i.test(t),
             );
             if (rateLimitMatch) {
               throw new FatalProviderError(`AI provider rate limit reached: ${rateLimitMatch}`);
             }
 
             // Detect authentication errors (401) — fail immediately, unrecoverable
-            const authErrorMatch = textChunks.find((t: string) =>
+            const authErrorMatch = shortChunks.find((t: string) =>
               /API Error:\s*401/i.test(t),
             );
             if (authErrorMatch) {
@@ -197,7 +210,7 @@ export class ClaudeCodeProvider implements AIProvider {
             }
 
             // Detect login required — fail immediately, unrecoverable without user action
-            const loginRequiredMatch = textChunks.find((t: string) =>
+            const loginRequiredMatch = shortChunks.find((t: string) =>
               /not logged in/i.test(t),
             );
             if (loginRequiredMatch) {
@@ -205,7 +218,7 @@ export class ClaudeCodeProvider implements AIProvider {
             }
 
             // Detect API errors surfaced as assistant text by the SDK
-            const apiErrorMatch = textChunks.find((t: string) => t.includes('API Error:'));
+            const apiErrorMatch = shortChunks.find((t: string) => t.includes('API Error:'));
             if (apiErrorMatch) {
               consecutiveApiErrors++;
               if (consecutiveApiErrors >= MAX_API_ERROR_RETRIES) {

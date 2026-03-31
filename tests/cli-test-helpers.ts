@@ -34,6 +34,11 @@ export const mixedResultsConfigDir = resolve(testDir, 'fixtures', 'cli-configs',
 export const semgrepOnlyConfigDir = resolve(testDir, 'fixtures', 'cli-configs', 'semgrep-only');
 export const mixedWithSemgrepOnlyConfigDir = resolve(testDir, 'fixtures', 'cli-configs', 'mixed-with-semgrep-only');
 export const sarifVerifyConfigDir = resolve(testDir, 'fixtures', 'cli-configs', 'sarif-verify');
+export const sarifVerifyEmptyConfigDir = resolve(testDir, 'fixtures', 'cli-configs', 'sarif-verify-empty');
+export const sarifVerifyMissingConfigDir = resolve(testDir, 'fixtures', 'cli-configs', 'sarif-verify-missing');
+export const perCheckModelConfigDir = resolve(testDir, 'fixtures', 'cli-configs', 'per-check-model');
+export const openantCheckConfigDir = resolve(testDir, 'fixtures', 'cli-configs', 'openant-check');
+export const mixedDiscoveryConfigDir = resolve(testDir, 'fixtures', 'cli-configs', 'mixed-discovery');
 
 // SARIF fixtures
 export const cli3TargetsSarif = resolve(testDir, 'fixtures', 'sarif', 'cli-3-targets.sarif');
@@ -97,6 +102,9 @@ export async function runCLI(
     AGHAST_GENERIC_PROMPT: undefined,
     AGHAST_AI_MODEL: undefined,
     AGHAST_DEBUG: undefined,
+    AGHAST_LOG_LEVEL: '',
+    AGHAST_LOG_FILE: '',
+    AGHAST_LOG_TYPE: '',
     NO_COLOR: '1',
   };
   const merged = { ...dotenvDefaults, ...env };

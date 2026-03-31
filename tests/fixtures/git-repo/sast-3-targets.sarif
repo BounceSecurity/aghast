@@ -1,0 +1,86 @@
+{
+  "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+  "version": "2.1.0",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "semgrep",
+          "semanticVersion": "1.50.0",
+          "rules": []
+        }
+      },
+      "results": [
+        {
+          "ruleId": "sql-concat",
+          "level": "warning",
+          "message": {
+            "text": "SQL concatenation in getUser"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/example.ts"
+                },
+                "region": {
+                  "startLine": 3,
+                  "endLine": 5,
+                  "snippet": {
+                    "text": "const query = `SELECT * FROM users WHERE id = '${id}'`;"
+                  }
+                }
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "sql-concat",
+          "level": "warning",
+          "message": {
+            "text": "SQL usage in deleteUser"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/example.ts"
+                },
+                "region": {
+                  "startLine": 8,
+                  "endLine": 11,
+                  "snippet": {
+                    "text": "return db.execute('DELETE FROM users WHERE id = ?', [id]);"
+                  }
+                }
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "sql-concat",
+          "level": "warning",
+          "message": {
+            "text": "Module import"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/example.ts"
+                },
+                "region": {
+                  "startLine": 1,
+                  "endLine": 2,
+                  "snippet": {
+                    "text": "// Sample source file for testing"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
