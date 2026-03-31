@@ -24,7 +24,7 @@ You can read the full background to this tool in our blogpost [here](https://bou
 - A combination of a static rule and an AI scanning rule - the sweet spot for most use cases
 - Purely static rules - for completeness, when a traditional static rule is all you need
 - SARIF verification - validate findings from external SAST tools using AI to filter false positives
-- OpenAnt unit analysis - analyze pre-extracted code units with call graph context using AI
+- [OpenAnt](https://github.com/knostic/OpenAnt/) (Apache-2.0) unit analysis - analyze pre-extracted code units with call graph context using AI
 
 The beauty of the approach is what you *don't* need:
 
