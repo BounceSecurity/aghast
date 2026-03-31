@@ -1,0 +1,8 @@
+{
+  "id": "aghast-sarif-val",
+  "name": "SARIF Verification Check",
+  "instructionsFile": "aghast-sarif-val.md",
+  "severity": "high",
+  "confidence": "medium",
+  "checkTarget": { "type": "targeted", "discovery": "sarif", "sarifFile": "./nonexistent.sarif" }
+}

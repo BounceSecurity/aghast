@@ -32,6 +32,7 @@ export interface CheckDefinition {
   instructionsFile?: string;
   severity?: 'critical' | 'high' | 'medium' | 'low' | 'informational';
   confidence?: 'high' | 'medium' | 'low';
+  model?: string;
   checkTarget?: CheckTargetDefinition;
   applicablePaths?: string[];
   excludedPaths?: string[];
@@ -50,18 +51,32 @@ export interface SecurityCheck {
   enabled?: boolean;
   severity?: 'critical' | 'high' | 'medium' | 'low' | 'informational';
   confidence?: 'high' | 'medium' | 'low';
+  /** AI model override for this specific check. */
+  model?: string;
   /** Path to the check folder (set during resolution). */
   checkDir?: string;
 }
 
 // --- A.2 Check Target Definition ---
 
+export interface OpenAntFilterConfig {
+  unitTypes?: string[];
+  excludeUnitTypes?: string[];
+  securityClassifications?: string[];
+  reachableOnly?: boolean;
+  entryPointsOnly?: boolean;
+  minConfidence?: number;
+}
+
 export interface CheckTargetDefinition {
-  type: 'semgrep' | 'semgrep-only' | 'repository' | 'sarif-verify';
+  type: 'targeted' | 'static' | 'repository';
+  discovery?: 'semgrep' | 'openant' | 'sarif';
   rules?: string | string[];
   config?: string;
+  sarifFile?: string;
   maxTargets?: number;
   concurrency?: number;
+  openant?: OpenAntFilterConfig;
 }
 
 // --- A.2b Check Target (discovered location) ---
@@ -179,6 +194,11 @@ export interface RuntimeConfig {
     outputDirectory?: string;
     outputFormat?: string;
   };
+  logging?: {
+    logFile?: string;
+    logType?: string;
+    level?: string;
+  };
   genericPrompt?: string;
   failOnCheckFailure?: boolean;
 }
@@ -250,9 +270,11 @@ export interface AIProvider {
     instructions: string,
     repositoryPath: string,
     logPrefix?: string,
+    options?: { maxTurns?: number },
   ): Promise<AIResponse>;
   validateConfig(): Promise<boolean>;
   getModelName?(): string;
+  setModel?(model: string): void;
   enableDebug?(): void;
 }
 

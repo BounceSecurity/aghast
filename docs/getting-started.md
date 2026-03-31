@@ -12,8 +12,9 @@ This guide walks you through installing aghast and setting up your environment.
 ## Prerequisites
 
 - **Node.js 20+**
-- **[Semgrep Community Edition](https://semgrep.dev/docs/getting-started/)** (LGPL-2.1) — only required if your checks use Semgrep rules (`semgrep` or `semgrep-only` check types)
-- **Anthropic API key** — required for AI-based checks (not needed for `semgrep-only` checks)
+- **[Semgrep Community Edition](https://semgrep.dev/docs/getting-started/)** (LGPL-2.1) — only required if your checks use `semgrep` discovery
+- **[OpenAnt](https://github.com/knostic/OpenAnt)** + **Python 3.11+** + **Go** (for building) — only required if your checks use `openant` discovery
+- **Anthropic API key** — required for AI-based checks (`repository` and `targeted` types; not needed for `static` checks)
 
 ## 1. Install aghast
 
@@ -33,7 +34,7 @@ npm uninstall -g @bouncesecurity/aghast
 export ANTHROPIC_API_KEY=your-api-key
 ```
 
-This is required for `repository` and `semgrep` (multi-target) checks. You can skip this step if you only plan to run `semgrep-only` checks.
+This is required for `repository` and `targeted` checks. You can skip this step if you only plan to run `static` checks.
 
 ## What's next
 

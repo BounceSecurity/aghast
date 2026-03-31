@@ -21,10 +21,13 @@ import {
   semgrepOnlyConfigDir,
   mixedWithSemgrepOnlyConfigDir,
   sarifVerifyConfigDir,
-  cli3TargetsSarif,
-  emptyResultsSarif,
+  sarifVerifyEmptyConfigDir,
+  perCheckModelConfigDir,
   failFixtureRepo,
   malformedFixture,
+  cli3TargetsSarif,
+  emptyResultsSarif,
+  mixedDiscoveryConfigDir,
   createScopedHelpers,
 } from './cli-test-helpers.js';
 
@@ -539,15 +542,16 @@ describe('CLI mock mode: semgrep-only checks', () => {
   });
 });
 
-// ─── sarif-verify checks ────────────────────────────────────────────
+// ─── sarif discovery checks ─────────────────────────────────────────
 
-describe('CLI mock mode: sarif-verify checks', () => {
+describe('CLI mock mode: sarif discovery checks', () => {
   afterEach(cleanupOutput);
 
-  it('PASS: empty SARIF → 0 findings → PASS', async () => {
+  it('PASS: empty SARIF (0 findings) → PASS', async () => {
+    // sarifVerifyEmptyConfigDir check points to sast-empty.sarif (0 findings)
     const { exitCode } = await runCLI(
       { AGHAST_MOCK_AI: 'true' },
-      [fixtureRepo, '--config-dir', sarifVerifyConfigDir, '--sarif-file', emptyResultsSarif],
+      [fixtureRepo, '--config-dir', sarifVerifyEmptyConfigDir],
     );
     assert.equal(exitCode, 0);
 
@@ -566,9 +570,10 @@ describe('CLI mock mode: sarif-verify checks', () => {
 
   it('PASS: SARIF with findings + mock AI returns empty issues → PASS (all false positives)', async () => {
     // Default AGHAST_MOCK_AI=true returns {"issues": []} for every target
+    // sarifVerifyConfigDir check points to sast-3-targets.sarif (3 findings)
     const { exitCode } = await runCLI(
       { AGHAST_MOCK_AI: 'true' },
-      [fixtureRepo, '--config-dir', sarifVerifyConfigDir, '--sarif-file', cli3TargetsSarif],
+      [fixtureRepo, '--config-dir', sarifVerifyConfigDir],
     );
     assert.equal(exitCode, 0);
 
@@ -583,7 +588,7 @@ describe('CLI mock mode: sarif-verify checks', () => {
   it('FAIL: SARIF with findings + mock AI returns issues → FAIL', async () => {
     const { exitCode } = await runCLI(
       { AGHAST_MOCK_AI: failFixtureRepo },
-      [fixtureRepo, '--config-dir', sarifVerifyConfigDir, '--sarif-file', cli3TargetsSarif],
+      [fixtureRepo, '--config-dir', sarifVerifyConfigDir],
     );
     assert.equal(exitCode, 0);
 
@@ -603,24 +608,25 @@ describe('CLI mock mode: sarif-verify checks', () => {
     }
   });
 
-  it('ERROR: no --sarif-file provided → ERROR status', async () => {
+  it('ERROR: sarifFile not found at specified path → ERROR status', async () => {
+    // sarifVerifyConfigDir check points to sast-3-targets.sarif; run against a repo without it
     const { exitCode } = await runCLI(
       { AGHAST_MOCK_AI: 'true' },
-      [fixtureRepo, '--config-dir', sarifVerifyConfigDir],
+      [singleCheckConfigDir, '--config-dir', sarifVerifyConfigDir],
     );
     assert.equal(exitCode, 0);
 
-    const results = await readResults();
+    const results = await readResults(`${singleCheckConfigDir}/security_checks_results.json`);
     const checks = results.checks as Array<Record<string, unknown>>;
 
     assert.equal(checks[0].status, 'ERROR');
-    assert.ok((checks[0].error as string).includes('--sarif-file'));
+    assert.ok(checks[0].error, `Expected error message`);
   });
 
   it('targetsAnalyzed field is present in check summary', async () => {
     await runCLI(
       { AGHAST_MOCK_AI: 'true' },
-      [fixtureRepo, '--config-dir', sarifVerifyConfigDir, '--sarif-file', cli3TargetsSarif],
+      [fixtureRepo, '--config-dir', sarifVerifyConfigDir],
     );
 
     const results = await readResults();
@@ -631,7 +637,7 @@ describe('CLI mock mode: sarif-verify checks', () => {
   it('severity and confidence from check config appear on issues', async () => {
     await runCLI(
       { AGHAST_MOCK_AI: failFixtureRepo },
-      [fixtureRepo, '--config-dir', sarifVerifyConfigDir, '--sarif-file', cli3TargetsSarif],
+      [fixtureRepo, '--config-dir', sarifVerifyConfigDir],
     );
 
     const results = await readResults();
@@ -641,5 +647,67 @@ describe('CLI mock mode: sarif-verify checks', () => {
       assert.equal(issue.severity, 'high');
       assert.equal(issue.confidence, 'medium');
     }
+  });
+});
+
+// ─── Per-check model ─────────────────────────────────────────────────────────
+
+describe('CLI: per-check model override', () => {
+  afterEach(cleanupOutput);
+
+  it('logs per-check model message when check has model field', async () => {
+    const { stdout, stderr } = await runCLI(
+      { AGHAST_MOCK_AI: 'true' },
+      [fixtureRepo, '--config-dir', perCheckModelConfigDir],
+    );
+    const combined = stdout + stderr;
+    assert.ok(
+      combined.includes('per-check model'),
+      'Should log per-check model override message',
+    );
+  });
+
+  it('per-check model appears in results aiProvider.models', async () => {
+    await runCLI(
+      { AGHAST_MOCK_AI: 'true' },
+      [fixtureRepo, '--config-dir', perCheckModelConfigDir],
+    );
+
+    const results = await readResults();
+    const aiProvider = results.aiProvider as { name: string; models: string[] };
+    assert.ok(
+      aiProvider.models.includes('claude-sonnet-4-6'),
+      `models array should include the per-check model, got: ${JSON.stringify(aiProvider.models)}`,
+    );
+  });
+
+  it('check with model field still produces valid PASS result', async () => {
+    const { exitCode } = await runCLI(
+      { AGHAST_MOCK_AI: 'true' },
+      [fixtureRepo, '--config-dir', perCheckModelConfigDir],
+    );
+    assert.equal(exitCode, 0);
+
+    const results = await readResults();
+    const checks = results.checks as Array<Record<string, unknown>>;
+    assert.equal(checks[0].status, 'PASS');
+  });
+});
+
+// ─── --generic-prompt with mixed discovery types ─────────────────────────────
+
+describe('CLI: --generic-prompt with mixed discovery types', () => {
+  afterEach(cleanupOutput);
+
+  it('errors when --generic-prompt is used with checks having different discovery types', async () => {
+    const { exitCode, stderr } = await runCLI(
+      { AGHAST_MOCK_AI: 'true', AGHAST_MOCK_SEMGREP: emptyResultsSarif },
+      [fixtureRepo, '--config-dir', mixedDiscoveryConfigDir, '--generic-prompt', 'custom-prompt.md'],
+    );
+    assert.notEqual(exitCode, 0, 'Should exit with error');
+    assert.ok(
+      stderr.includes('--generic-prompt') && stderr.includes('different discovery types'),
+      `Expected mixed discovery error, got: ${stderr}`,
+    );
   });
 });

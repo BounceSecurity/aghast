@@ -1,0 +1,6 @@
+{
+  "id": "aghast-sarif-check",
+  "name": "SARIF Check",
+  "instructionsFile": "aghast-sarif-check.md",
+  "checkTarget": { "type": "targeted", "discovery": "sarif", "sarifFile": "./results.sarif" }
+}

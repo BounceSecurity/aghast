@@ -154,6 +154,19 @@ describe('ClaudeCodeProvider: API error handling', () => {
     const result = await provider.executeCheck('test prompt', '/tmp/repo');
     assert.deepStrictEqual(result.parsed, { issues: [] });
   });
+
+  it('does not treat AI analysis mentioning "rate limit" as a rate limit error', async () => {
+    const messages = [
+      assistantMsg('**Weak Rate Limiting**: Global rate limit allows 100 requests per 15 minutes - inadequate for password reset. The code uses `crypto.randomBytes(32)` correctly for API keys but uses `Math.random()` for password reset tokens.'),
+      successResult(),
+    ];
+
+    const provider = new ClaudeCodeProvider({ _queryFn: createFakeQueryFn(messages) });
+    await provider.initialize({ apiKey: 'test-key' });
+
+    const result = await provider.executeCheck('test prompt', '/tmp/repo');
+    assert.deepStrictEqual(result.parsed, { issues: [] });
+  });
 });
 
 // --- Token usage extraction ---

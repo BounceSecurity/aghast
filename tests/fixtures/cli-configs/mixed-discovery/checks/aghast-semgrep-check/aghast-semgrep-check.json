@@ -1,0 +1,6 @@
+{
+  "id": "aghast-semgrep-check",
+  "name": "Semgrep Check",
+  "instructionsFile": "aghast-semgrep-check.md",
+  "checkTarget": { "type": "targeted", "discovery": "semgrep", "rules": "unused.yaml" }
+}

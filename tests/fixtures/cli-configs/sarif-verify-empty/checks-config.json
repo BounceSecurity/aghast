@@ -1,0 +1,9 @@
+{
+  "checks": [
+    {
+      "id": "aghast-sarif-val",
+      "repositories": [],
+      "enabled": true
+    }
+  ]
+}

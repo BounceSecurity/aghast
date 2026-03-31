@@ -1,0 +1,6 @@
+{
+  "checks": [
+    { "id": "aghast-semgrep-check", "repositories": [], "enabled": true },
+    { "id": "aghast-sarif-check", "repositories": [], "enabled": true }
+  ]
+}

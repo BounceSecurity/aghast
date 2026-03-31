@@ -108,7 +108,8 @@ describe('Semgrep integration tests', { skip }, () => {
           repositories: [],
           instructionsFile: 'unused.md',
           checkTarget: {
-            type: 'semgrep',
+            type: 'targeted',
+            discovery: 'semgrep',
             rules: sqlConcatRule,
           },
         };

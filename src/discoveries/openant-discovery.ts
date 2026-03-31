@@ -1,0 +1,56 @@
+/**
+ * OpenAnt-based target discovery.
+ *
+ * Runs `openant parse` against the repository (or uses a mock dataset),
+ * filters the resulting code units, and returns them as targets with
+ * rich prompt enrichment (call graph, entry points, metadata).
+ */
+
+import { runOpenAnt } from '../openant-runner.js';
+import { loadDatasetFromFile, filterUnits, formatUnitPromptSection } from '../openant-loader.js';
+import { logProgress, logDebug } from '../logging.js';
+import type { TargetDiscovery, DiscoveredTarget, DiscoveryOptions } from '../discovery.js';
+import type { SecurityCheck } from '../types.js';
+
+const TAG = 'openant-discovery';
+
+export const openantDiscovery: TargetDiscovery = {
+  name: 'openant',
+  defaultGenericPrompt: 'openant-security-instructions.md',
+  needsInstructions: false,
+
+  async discover(
+    check: SecurityCheck,
+    repoPath: string,
+    _options?: DiscoveryOptions,
+  ): Promise<DiscoveredTarget[]> {
+    const checkTarget = check.checkTarget!;
+
+    // Run openant parse (or use mock)
+    const { datasetPath, cleanup } = await runOpenAnt(repoPath);
+
+    try {
+      // Load and filter units
+      const dataset = await loadDatasetFromFile(datasetPath);
+      const totalUnits = dataset.units.length;
+      const units = filterUnits(dataset.units, checkTarget.openant);
+
+      logProgress(TAG, `Loaded ${totalUnits} units (${units.length} after filtering)`);
+
+      return units.map((unit, idx) => {
+        const origin = unit.code.primary_origin;
+        return {
+          file: origin.file_path,
+          startLine: origin.start_line,
+          endLine: origin.end_line,
+          label: `[unit ${idx + 1}/${units.length}]`,
+          promptEnrichment: formatUnitPromptSection(unit),
+          aiOptions: { maxTurns: 20 },
+        };
+      });
+    } finally {
+      await cleanup();
+      logDebug(TAG, 'Cleaned up temporary OpenAnt output');
+    }
+  },
+};

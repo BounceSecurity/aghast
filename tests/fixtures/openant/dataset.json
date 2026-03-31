@@ -1,0 +1,52 @@
+{
+  "name": "test-project",
+  "repository": "https://github.com/test/repo",
+  "units": [
+    {
+      "id": "app/views.py:handle_login",
+      "unit_type": "view_function",
+      "code": {
+        "primary_code": "def handle_login(request):\n    username = request.POST['username']\n    return username",
+        "primary_origin": {
+          "file_path": "app/views.py",
+          "start_line": 10,
+          "end_line": 12,
+          "function_name": "handle_login",
+          "class_name": null,
+          "enhanced": false,
+          "files_included": ["app/views.py"],
+          "original_length": 80,
+          "enhanced_length": 80
+        },
+        "dependencies": [],
+        "dependency_metadata": {
+          "depth": 0,
+          "total_upstream": 0,
+          "total_downstream": 0,
+          "direct_calls": 0,
+          "direct_callers": 0
+        }
+      },
+      "ground_truth": { "status": "UNKNOWN" },
+      "metadata": {
+        "decorators": [],
+        "is_async": false,
+        "parameters": ["request"],
+        "docstring": null,
+        "direct_calls": [],
+        "direct_callers": []
+      },
+      "reachable": true,
+      "is_entry_point": true,
+      "entry_point_reason": "input_pattern:request.POST"
+    }
+  ],
+  "statistics": {
+    "total_units": 1,
+    "by_type": { "view_function": 1 }
+  },
+  "metadata": {
+    "generator": "python_unit_generator.py",
+    "generated_at": "2026-01-15T10:00:00Z"
+  }
+}

@@ -3,7 +3,8 @@
   "name": "Multi-Target SQL Injection",
   "instructionsFile": "aghast-mt-sqli.md",
   "checkTarget": {
-    "type": "semgrep",
+    "type": "targeted",
+    "discovery": "semgrep",
     "rules": "unused-in-mock.yaml"
   }
 }

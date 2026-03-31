@@ -16,6 +16,7 @@ import { createInterface } from 'node:readline/promises';
 import { stdin, stdout } from 'node:process';
 import { createRequire } from 'node:module';
 import { ERROR_CODES, formatError, formatFatalError } from './error-codes.js';
+import { getCheckType, getValidCheckTypes } from './check-types.js';
 
 const ID_PREFIX = 'aghast-';
 
@@ -46,6 +47,7 @@ interface ParsedFlags {
   name?: string;
   severity?: string;
   confidence?: string;
+  model?: string;
   repositories?: string;
   checkOverview?: string;
   checkItems?: string;
@@ -53,7 +55,9 @@ interface ParsedFlags {
   failCondition?: string;
   flagCondition?: string;
   checkType?: string;
+  discovery?: string;
   semgrepRules?: string;
+  sarifFile?: string;
   maxTargets?: string;
   language?: string;
   configDir?: string;
@@ -64,6 +68,7 @@ const CLI_FLAG_MAP: Record<string, keyof ParsedFlags> = {
   '--name': 'name',
   '--severity': 'severity',
   '--confidence': 'confidence',
+  '--model': 'model',
   '--repositories': 'repositories',
   '--check-overview': 'checkOverview',
   '--check-items': 'checkItems',
@@ -71,7 +76,9 @@ const CLI_FLAG_MAP: Record<string, keyof ParsedFlags> = {
   '--fail-condition': 'failCondition',
   '--flag-condition': 'flagCondition',
   '--check-type': 'checkType',
+  '--discovery': 'discovery',
   '--semgrep-rules': 'semgrepRules',
+  '--sarif-file': 'sarifFile',
   '--max-targets': 'maxTargets',
   '--language': 'language',
   '--config-dir': 'configDir',
@@ -144,31 +151,41 @@ async function promptForMissing(flags: ParsedFlags): Promise<Required<Omit<Parse
     name: await ask('Check name (e.g. XSS Prevention)', flags.name),
     severity: await askOptional('Severity (critical/high/medium/low/informational)', flags.severity),
     confidence: await askOptional('Confidence (high/medium/low)', flags.confidence),
+    model: flags.model !== undefined ? flags.model : await askOptional('AI model override (e.g. claude-sonnet-4-6)', undefined),
     repositories: flags.repositories !== undefined ? flags.repositories : await askOptional('Repositories (comma-separated URLs, or empty for all)', undefined),
     checkOverview: await ask('Check overview / description', flags.checkOverview),
     checkItems: await ask('Check items (comma-separated)', flags.checkItems),
     passCondition: await ask('PASS condition', flags.passCondition),
     failCondition: await ask('FAIL condition', flags.failCondition),
     flagCondition: await askOptional('FLAG condition (requires human investigation)', flags.flagCondition),
-    checkType: await askWithDefault('Check type (repository/semgrep/semgrep-only/sarif-verify)', 'repository', flags.checkType),
+    checkType: await askWithDefault(`Check type (${getValidCheckTypes().join('/')})`, 'repository', flags.checkType),
+    discovery: '',
     semgrepRules: '',
+    sarifFile: '',
     maxTargets: '',
     language: '',
   };
 
-  if (result.checkType === 'semgrep' || result.checkType === 'semgrep-only') {
-    result.semgrepRules = flags.semgrepRules !== undefined
-      ? flags.semgrepRules
-      : await askOptional('Semgrep rule file paths (comma-separated, or press Enter to generate template)', undefined);
+  if (result.checkType === 'targeted' || result.checkType === 'static') {
+    const discoveryChoices = result.checkType === 'targeted' ? 'semgrep/openant/sarif' : 'semgrep';
+    result.discovery = await askWithDefault(`Discovery (${discoveryChoices})`, 'semgrep', flags.discovery);
     result.maxTargets = await askOptional('Max targets', flags.maxTargets);
-    if (!result.semgrepRules) {
-      // Language is required when generating a rule template + test file
-      result.language = await ask(`Language (${LANGUAGE_CHOICES.join('/')})`, flags.language);
-    } else {
-      result.language = flags.language ?? '';
+
+    if (result.discovery === 'semgrep') {
+      result.semgrepRules = flags.semgrepRules !== undefined
+        ? flags.semgrepRules
+        : await askOptional('Semgrep rule file paths (comma-separated, or press Enter to generate template)', undefined);
+      if (!result.semgrepRules) {
+        // Language is required when generating a rule template + test file
+        result.language = await ask(`Language (${LANGUAGE_CHOICES.join('/')})`, flags.language);
+      } else {
+        result.language = flags.language ?? '';
+      }
+    } else if (result.discovery === 'sarif') {
+      result.sarifFile = flags.sarifFile !== undefined
+        ? flags.sarifFile
+        : await ask('SARIF file path (relative to target repo, e.g. ./sast-results.sarif)', flags.sarifFile);
     }
-  } else if (result.checkType === 'sarif-verify') {
-    result.maxTargets = await askOptional('Max targets', flags.maxTargets);
   }
 
   if (rl) rl.close();
@@ -194,7 +211,7 @@ async function loadExistingRegistry(registryPath: string): Promise<RegistryFile>
 }
 
 function validateInputs(
-  inputs: { id: string; severity: string; confidence: string; checkType: string; maxTargets: string; language: string },
+  inputs: { id: string; severity: string; confidence: string; checkType: string; discovery: string; maxTargets: string; language: string; sarifFile: string },
   registry: RegistryFile,
 ): string[] {
   const errors: string[] = [];
@@ -217,9 +234,9 @@ function validateInputs(
     errors.push(`Invalid confidence "${inputs.confidence}". Must be one of: ${validConfidences.join(', ')}`);
   }
 
-  const validCheckTypes = ['repository', 'semgrep', 'semgrep-only', 'sarif-verify', ''];
-  if (!validCheckTypes.includes(inputs.checkType)) {
-    errors.push(`Invalid check type "${inputs.checkType}". Must be one of: repository, semgrep, semgrep-only, sarif-verify`);
+  const validCheckTypes = getValidCheckTypes();
+  if (inputs.checkType && !validCheckTypes.includes(inputs.checkType)) {
+    errors.push(`Invalid check type "${inputs.checkType}". Must be one of: ${validCheckTypes.join(', ')}`);
   }
 
   if (inputs.maxTargets) {
@@ -229,7 +246,17 @@ function validateInputs(
     }
   }
 
-  if ((inputs.checkType === 'semgrep' || inputs.checkType === 'semgrep-only') && inputs.language && !SUPPORTED_LANGUAGES[inputs.language]) {
+  if ((inputs.checkType === 'targeted' || inputs.checkType === 'static') && inputs.checkType) {
+    const validDiscoveries = inputs.checkType === 'targeted' ? ['semgrep', 'openant', 'sarif'] : ['semgrep'];
+    if (!inputs.discovery || !validDiscoveries.includes(inputs.discovery)) {
+      errors.push(`Invalid discovery "${inputs.discovery}" for check type "${inputs.checkType}". Must be one of: ${validDiscoveries.join(', ')}`);
+    }
+    if (inputs.discovery === 'sarif' && !inputs.sarifFile) {
+      errors.push('sarifFile is required for sarif discovery');
+    }
+  }
+
+  if (inputs.discovery === 'semgrep' && inputs.language && !SUPPORTED_LANGUAGES[inputs.language]) {
     errors.push(`Invalid language "${inputs.language}". Must be one of: ${Object.keys(SUPPORTED_LANGUAGES).join(', ')}`);
   }
 
@@ -313,8 +340,11 @@ function generateCheckDefinition(inputs: {
   name: string;
   severity: string;
   confidence: string;
+  model: string;
   checkType: string;
+  discovery: string;
   semgrepRules: string;
+  sarifFile: string;
   maxTargets: string;
 }): Record<string, unknown> {
   const def: Record<string, unknown> = {
@@ -322,8 +352,10 @@ function generateCheckDefinition(inputs: {
     name: inputs.name,
   };
 
-  // semgrep-only and sarif-verify checks don't require an instructionsFile
-  if (inputs.checkType !== 'semgrep-only' && inputs.checkType !== 'sarif-verify') {
+  // Only check types that need instructions get an instructionsFile.
+  // Discovery types with self-contained prompts (openant, sarif) don't need instructions.
+  const selfContained = inputs.discovery === 'openant' || inputs.discovery === 'sarif';
+  if (getCheckType(inputs.checkType).needsInstructions && !selfContained) {
     def.instructionsFile = `${inputs.id}.md`;
   }
 
@@ -333,21 +365,25 @@ function generateCheckDefinition(inputs: {
   if (inputs.confidence) {
     def.confidence = inputs.confidence;
   }
+  if (inputs.model) {
+    def.model = inputs.model;
+  }
 
-  if (inputs.checkType === 'semgrep' || inputs.checkType === 'semgrep-only') {
-    const checkTarget: Record<string, unknown> = { type: inputs.checkType };
-    if (inputs.semgrepRules) {
-      const rules = inputs.semgrepRules.split(',').map((r) => r.trim()).filter(Boolean);
-      checkTarget.rules = rules.length === 1 ? rules[0] : rules;
-    } else {
-      checkTarget.rules = `${inputs.id}.yaml`;
+  if (inputs.checkType === 'targeted' || inputs.checkType === 'static') {
+    const checkTarget: Record<string, unknown> = {
+      type: inputs.checkType,
+      discovery: inputs.discovery,
+    };
+    if (inputs.discovery === 'semgrep') {
+      if (inputs.semgrepRules) {
+        const rules = inputs.semgrepRules.split(',').map((r) => r.trim()).filter(Boolean);
+        checkTarget.rules = rules.length === 1 ? rules[0] : rules;
+      } else {
+        checkTarget.rules = `${inputs.id}.yaml`;
+      }
+    } else if (inputs.discovery === 'sarif') {
+      checkTarget.sarifFile = inputs.sarifFile;
     }
-    if (inputs.maxTargets) {
-      checkTarget.maxTargets = parseInt(inputs.maxTargets, 10);
-    }
-    def.checkTarget = checkTarget;
-  } else if (inputs.checkType === 'sarif-verify') {
-    const checkTarget: Record<string, unknown> = { type: 'sarif-verify' };
     if (inputs.maxTargets) {
       checkTarget.maxTargets = parseInt(inputs.maxTargets, 10);
     }
@@ -386,15 +422,18 @@ Options:
   --name <name>              Human-readable check name (e.g. "XSS Prevention")
   --severity <level>         Severity: critical, high, medium, low, informational
   --confidence <level>       Confidence: high, medium, low
+  --model <model>            AI model override for this check (e.g. claude-sonnet-4-6)
   --repositories <urls>      Comma-separated repository URLs (empty = all repos)
   --check-overview <text>    Description of what this check does
   --check-items <items>      Comma-separated list of things to check
   --pass-condition <text>    Condition for a PASS result
   --fail-condition <text>    Condition for a FAIL result
   --flag-condition <text>    Condition for a FLAG result (optional)
-  --check-type <type>        Check type: repository (default), semgrep, semgrep-only, sarif-verify
-  --semgrep-rules <paths>    Comma-separated Semgrep rule file paths
-  --max-targets <n>          Maximum number of Semgrep targets to analyze
+  --check-type <type>        Check type (default: repository). See 'Check types' below
+  --discovery <name>         Discovery mechanism for targeted/static checks. See below
+  --semgrep-rules <paths>    Comma-separated Semgrep rule file paths (for semgrep discovery)
+  --sarif-file <path>        SARIF file path in check definition, relative to repo (for sarif discovery)
+  --max-targets <n>          Maximum number of targets to analyze
   --language <lang>          Language for Semgrep template: python, javascript, typescript
   -h, --help                 Show this help message
 
@@ -402,15 +441,20 @@ Environment variables:
   AGHAST_CONFIG_DIR           Default config directory (CLI --config-dir takes precedence)
 
 Check types:
-  repository     AI analyzes the whole repository (no Semgrep)
-  semgrep        Semgrep finds targets, AI analyzes each one
-  semgrep-only   Semgrep findings mapped directly to issues (no AI)
-  sarif-verify   External SARIF provides findings, AI validates each one
+  repository  AI analyzes the whole repository
+  targeted    Discovery finds specific targets, AI analyzes each one
+  static      Discovery finds targets, mapped directly to issues (no AI)
+
+Discovery mechanisms:
+  semgrep     Semgrep rules find targets (targeted or static)
+  openant     OpenAnt code analysis finds units (targeted only)
+  sarif       External SARIF file provides findings (targeted only)
 
 Examples:
   aghast new-check --config-dir ./my-checks
   aghast new-check --config-dir ./my-checks --id xss --name "XSS Prevention"
-  aghast new-check --config-dir ./my-checks --check-type semgrep --language typescript`;
+  aghast new-check --config-dir ./my-checks --check-type targeted --discovery semgrep --language typescript
+  aghast new-check --config-dir ./my-checks --check-type targeted --discovery sarif --sarif-file ./sast-results.sarif`;
 
 export async function runNewCheck(args: string[]): Promise<void> {
   if (args.includes('--help') || args.includes('-h')) {
@@ -469,15 +513,16 @@ export async function runNewCheck(args: string[]): Promise<void> {
   await writeFile(resolve(checkFolder, `${inputs.id}.json`), JSON.stringify(checkDef, null, 2) + '\n', 'utf-8');
   console.log(`Created: ${checkFolder}/${inputs.id}.json`);
 
-  // Generate and write instructions.md (skipped for semgrep-only and sarif-verify)
-  if (inputs.checkType !== 'semgrep-only' && inputs.checkType !== 'sarif-verify') {
+  // Generate and write instructions.md (only when instructions are needed)
+  const selfContainedDiscovery = inputs.discovery === 'openant' || inputs.discovery === 'sarif';
+  if (getCheckType(inputs.checkType).needsInstructions && !selfContainedDiscovery) {
     const markdown = generateMarkdown(inputs);
     await writeFile(resolve(checkFolder, `${inputs.id}.md`), markdown, 'utf-8');
     console.log(`Created: ${checkFolder}/${inputs.id}.md`);
   }
 
   // Generate Semgrep rule template and test file if needed
-  if ((inputs.checkType === 'semgrep' || inputs.checkType === 'semgrep-only') && !inputs.semgrepRules) {
+  if (inputs.discovery === 'semgrep' && !inputs.semgrepRules) {
     const rulePath = resolve(checkFolder, `${inputs.id}.yaml`);
     await writeFile(rulePath, generateSemgrepRule(inputs.id, inputs.language), 'utf-8');
     console.log(`Created: ${checkFolder}/${inputs.id}.yaml (template — edit before running)`);

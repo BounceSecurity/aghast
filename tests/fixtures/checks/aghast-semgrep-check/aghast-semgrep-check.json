@@ -3,7 +3,8 @@
   "name": "Semgrep Multi-Target Check",
   "instructionsFile": "aghast-semgrep-check.md",
   "checkTarget": {
-    "type": "semgrep",
+    "type": "targeted",
+    "discovery": "semgrep",
     "rules": "api-endpoints.yaml",
     "maxTargets": 50,
     "concurrency": 3

@@ -173,6 +173,53 @@ jobs:
       - name: Run Semgrep integration tests
         run: pnpm test:semgrep
 
+  openant-integration:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ${{ github.event.repository.name == 'aghast' && fromJSON('["windows-latest","ubuntu-latest","macos-latest"]') || fromJSON('["ubuntu-latest"]') }}
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+
+      - run: pnpm install --frozen-lockfile
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+
+      - name: Build OpenAnt from fork (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          git clone https://github.com/joshbouncesecurity/OpenAnt.git /tmp/openant
+          cd /tmp/openant/apps/openant-cli
+          go build -o bin/openant ./main.go
+          echo "$PWD/bin" >> $GITHUB_PATH
+
+      - name: Build OpenAnt from fork (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          git clone https://github.com/joshbouncesecurity/OpenAnt.git $env:RUNNER_TEMP\openant
+          Set-Location $env:RUNNER_TEMP\openant\apps\openant-cli
+          go build -o bin\openant.exe .\main.go
+          "$PWD\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Run OpenAnt integration tests
+        run: pnpm test:openant
+
   build-and-install:
     runs-on: ${{ matrix.os }}
     strategy:

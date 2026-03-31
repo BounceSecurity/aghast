@@ -21,11 +21,13 @@ aghast scan <repo-path> --config-dir <path> [options]
 | `--output <path>` | Output file path (default: `<repo-path>/security_checks_results.<ext>`) |
 | `--output-format json\|sarif` | Output format (default: `json`) |
 | `--fail-on-check-failure` | Exit with code 1 if any check FAILs or ERRORs |
-| `--debug` | Enable verbose debug output |
+| `--debug` | Shorthand for `--log-level debug` |
+| `--log-level <level>` | Console log level: `error`, `warn`, `info`, `debug`, `trace` (default: `info`) |
+| `--log-file <path>` | Write all log output to a file (captures at `trace` level by default) |
+| `--log-type <type>` | Log file handler type (default: `file`). Pluggable — new types can be added |
 | `--model <model>` | AI model override (e.g. `claude-sonnet-4-20250514`) |
 | `--ai-provider <name>` | AI provider name (default: `claude-code`) |
 | `--generic-prompt <file>` | Generic prompt template filename |
-| `--sarif-file <path>` | Path to SARIF file for `sarif-verify` checks |
 | `--runtime-config <path>` | Path to runtime config file. Useful for setting persistent defaults instead of repeating CLI flags |
 
 Run `aghast scan --help` for the full list of options.
@@ -39,6 +41,11 @@ Run `aghast scan --help` for the full list of options.
 | `AGHAST_AI_MODEL` | AI model override (CLI `--model` takes precedence) |
 | `AGHAST_GENERIC_PROMPT` | Generic prompt template filename (CLI `--generic-prompt` takes precedence) |
 | `AGHAST_DEBUG` | Set to `true` to enable debug output (same as `--debug`) |
+| `AGHAST_LOG_LEVEL` | Console log level (CLI `--log-level` takes precedence) |
+| `AGHAST_LOG_FILE` | Log file path (CLI `--log-file` takes precedence) |
+| `AGHAST_LOG_TYPE` | Log file handler type (CLI `--log-type` takes precedence) |
+| `AGHAST_MOCK_SEMGREP` | Path to a SARIF file to use instead of running Semgrep (for testing `semgrep` discovery without Semgrep installed) |
+| `AGHAST_MOCK_OPENANT` | Path to a dataset JSON file to use instead of running `openant parse` (for testing `openant` discovery without OpenAnt installed) |
 | `NO_COLOR` | Set to `1` to disable colored CLI output ([standard](https://no-color.org/)) |
 
 ## Runtime Configuration
@@ -56,14 +63,21 @@ Results are written to `security_checks_results.<ext>` in the target repo by def
 
 ## Check Types
 
-aghast supports four types of security checks:
+aghast supports three check types with pluggable discovery methods:
 
-| Type | Semgrep? | AI? | Description |
-|------|----------|-----|-------------|
-| `repository` | No | Yes | AI analyzes the entire repository against markdown instructions |
-| `semgrep` | Yes | Yes | Semgrep discovers specific code locations, AI analyzes each one |
-| `semgrep-only` | Yes | No | Semgrep findings are mapped directly to issues (no AI needed, no API key needed) |
-| `sarif-verify` | No | Yes | External SARIF file provides findings, AI validates each as true/false positive (use `--sarif-file`) |
+| Type | AI? | Description |
+|------|-----|-------------|
+| `repository` | Yes | AI analyzes the entire repository against markdown instructions |
+| `targeted` | Yes | A discovery method finds specific code locations, AI analyzes each one independently |
+| `static` | No | A discovery method finds code locations, findings are mapped directly to issues (no AI needed, no API key needed) |
+
+Discovery methods for `targeted` and `static` checks:
+
+| Discovery | Requires | Description |
+|-----------|----------|-------------|
+| `semgrep` | Semgrep installed | Runs Semgrep rules to discover specific code locations |
+| `sarif` | SARIF file in check definition | Reads findings from an external SARIF file |
+| `openant` | OpenAnt + Python 3.11+ | Runs `openant parse` on the target repo to extract code units with call graph context |
 
 See the [Configuration Reference](configuration.md) for check definition schemas and result statuses.
 
