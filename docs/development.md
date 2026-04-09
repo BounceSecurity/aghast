@@ -14,22 +14,22 @@ Clone the repo and install dependencies:
 ```bash
 git clone https://github.com/BounceSecurity/aghast.git
 cd aghast
-pnpm install
+npm install
 ```
 
 Run this again after pulling changes to keep dependencies in sync with the lockfile.
 
-During development, you can use the pnpm scripts directly:
+During development, you can use the npm scripts directly:
 
 ```bash
-pnpm scan -- <repo-path> [options]
-pnpm new-check -- [options]
-pnpm build
-pnpm test
-pnpm test:ci        # Run tests with spec and JUnit reporters (for CI)
-pnpm test:semgrep   # Run real Semgrep integration tests (requires Semgrep installed)
-pnpm lint
-pnpm lint:fix       # Run ESLint with auto-fix
+npm run scan -- <repo-path> [options]
+npm run new-check -- [options]
+npm run build
+npm test
+npm run test:ci        # Run tests with spec and JUnit reporters (for CI)
+npm run test:semgrep   # Run real Semgrep integration tests (requires Semgrep installed)
+npm run lint
+npm run lint:fix       # Run ESLint with auto-fix
 ```
 
 ## Releasing

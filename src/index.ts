@@ -562,7 +562,7 @@ export async function runScan(args: string[]): Promise<void> {
   process.exit(shouldFail ? 1 : 0);
 }
 
-// Auto-run when executed directly (pnpm scan / tsx src/index.ts), but not when imported by cli.ts.
+// Auto-run when executed directly (npm run scan / tsx src/index.ts), but not when imported by cli.ts.
 if (!process.env._AGHAST_CLI) {
   runScan(process.argv.slice(2)).catch(async (err) => {
     const require = createRequire(import.meta.url);
