@@ -26,16 +26,14 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - uses: pnpm/action-setup@v4
-
       - uses: actions/setup-node@v6
         with:
           node-version: '22'
-          cache: 'pnpm'
+          cache: 'npm'
 
-      - run: pnpm install --frozen-lockfile
+      - run: npm ci
 
-      - run: pnpm lint
+      - run: npm run lint
 
   test:
     runs-on: ${{ matrix.os }}
@@ -49,14 +47,12 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - uses: pnpm/action-setup@v4
-
       - uses: actions/setup-node@v6
         with:
           node-version: ${{ matrix.node-version }}
-          cache: 'pnpm'
+          cache: 'npm'
 
-      - run: pnpm install --frozen-lockfile
+      - run: npm ci
 
       - name: Run tests (shard ${{ matrix.shard }}/3)
         shell: bash
@@ -151,14 +147,12 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - uses: pnpm/action-setup@v4
-
       - uses: actions/setup-node@v6
         with:
           node-version: '22'
-          cache: 'pnpm'
+          cache: 'npm'
 
-      - run: pnpm install --frozen-lockfile
+      - run: npm ci
 
       - run: echo semgrep > requirements.txt
 
@@ -171,7 +165,7 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Run Semgrep integration tests
-        run: pnpm test:semgrep
+        run: npm run test:semgrep
 
   openant-integration:
     runs-on: ${{ matrix.os }}
@@ -183,14 +177,12 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - uses: pnpm/action-setup@v4
-
       - uses: actions/setup-node@v6
         with:
           node-version: '22'
-          cache: 'pnpm'
+          cache: 'npm'
 
-      - run: pnpm install --frozen-lockfile
+      - run: npm ci
 
       - uses: actions/setup-go@v5
         with:
@@ -218,7 +210,7 @@ jobs:
           "$PWD\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
       - name: Run OpenAnt integration tests
-        run: pnpm test:openant
+        run: npm run test:openant
 
   build-and-install:
     runs-on: ${{ matrix.os }}
@@ -241,17 +233,12 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: git clone --depth=1 --branch "${{ github.head_ref || github.ref_name }}" "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git" "${{ runner.temp }}/aghast-install"
 
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10
-          run_install: false
-
       - name: Build and pack
         working-directory: ${{ runner.temp }}/aghast-install
         run: |
-          pnpm install
-          pnpm build
-          pnpm pack
+          npm install
+          npm run build
+          npm pack
 
       - name: Install from tarball
         shell: bash

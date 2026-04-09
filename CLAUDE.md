@@ -9,7 +9,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Toolchain
 
 - **Language**: TypeScript (Node.js)
-- **Package Manager**: pnpm
+- **Package Manager**: npm
 - **AI SDK**: `@anthropic-ai/claude-agent-sdk`
 - **Test Framework**: `node:test` with `node:assert` (Node.js built-in)
 
@@ -66,29 +66,29 @@ The unified entry point is `src/cli.ts` which routes to `runScan()` (from `src/i
 
 ## Commands
 
-- `pnpm test` — Run all tests
-- `pnpm test:ci` — Run all tests with spec and JUnit reporters (for CI)
-- `pnpm test:semgrep` — Run real Semgrep integration tests (requires Semgrep installed)
-- `pnpm test:openant` — Run real OpenAnt integration tests (requires OpenAnt + Python 3.11+ installed)
-- `pnpm build` — Compile TypeScript
-- `pnpm lint` — Run ESLint on src/ and tests/
-- `pnpm lint:fix` — Run ESLint with auto-fix on src/ and tests/
-- `pnpm scan -- <repo-path> --config-dir <path> [--output <path>] [--output-format json|sarif] [--fail-on-check-failure] [--debug] [--log-level <level>] [--log-file <path>] [--log-type <type>] [--model <model>] [--ai-provider <name>] [--generic-prompt <file>] [--runtime-config <path>]` — Run checks (`--config-dir` required, default format: `json`, default output: `<repo-path>/security_checks_results.<ext>`, exit 1 on FAIL/ERROR with `--fail-on-check-failure`, `--debug` is shorthand for `--log-level debug`, `--log-file` writes all logs to a file at trace level). Discovery methods (Semgrep, OpenAnt, SARIF) are configured per-check via `checkTarget.discovery` in check definitions. Precedence: CLI flags > env vars > runtime config > defaults.
-- `pnpm new-check -- --config-dir <path> [--id <id> --name <name> ...]` — Interactive CLI to scaffold a new check (creates check folder with `<id>.json`, `<id>.md`, optional `<id>.yaml` Semgrep rule + tests; appends to `checks-config.json`). Bootstraps config directory if it doesn't exist.
+- `npm test` — Run all tests
+- `npm run test:ci` — Run all tests with spec and JUnit reporters (for CI)
+- `npm run test:semgrep` — Run real Semgrep integration tests (requires Semgrep installed)
+- `npm run test:openant` — Run real OpenAnt integration tests (requires OpenAnt + Python 3.11+ installed)
+- `npm run build` — Compile TypeScript
+- `npm run lint` — Run ESLint on src/ and tests/
+- `npm run lint:fix` — Run ESLint with auto-fix on src/ and tests/
+- `npm run scan -- <repo-path> --config-dir <path> [--output <path>] [--output-format json|sarif] [--fail-on-check-failure] [--debug] [--log-level <level>] [--log-file <path>] [--log-type <type>] [--model <model>] [--ai-provider <name>] [--generic-prompt <file>] [--runtime-config <path>]` — Run checks (`--config-dir` required, default format: `json`, default output: `<repo-path>/security_checks_results.<ext>`, exit 1 on FAIL/ERROR with `--fail-on-check-failure`, `--debug` is shorthand for `--log-level debug`, `--log-file` writes all logs to a file at trace level). Discovery methods (Semgrep, OpenAnt, SARIF) are configured per-check via `checkTarget.discovery` in check definitions. Precedence: CLI flags > env vars > runtime config > defaults.
+- `npm run new-check -- --config-dir <path> [--id <id> --name <name> ...]` — Interactive CLI to scaffold a new check (creates check folder with `<id>.json`, `<id>.md`, optional `<id>.yaml` Semgrep rule + tests; appends to `checks-config.json`). Bootstraps config directory if it doesn't exist.
 
 ## Check Definitions (External)
 
 Security check definitions and test codebases are maintained in a separate config directory (not in this repo). Use `--config-dir` to point the scanner at your checks:
 
 ```bash
-pnpm scan -- /path/to/target-repo --config-dir /path/to/checks-config
+npm run scan -- /path/to/target-repo --config-dir /path/to/checks-config
 ```
 
 For local development, clone your checks repo as `checks-config/` (gitignored) inside this repo:
 
 ```bash
 git clone <checks-repo-url> checks-config
-pnpm scan -- /path/to/target --config-dir checks-config
+npm run scan -- /path/to/target --config-dir checks-config
 ```
 
 ## Environment Variables

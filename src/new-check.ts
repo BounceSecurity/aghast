@@ -5,9 +5,9 @@
  * Appends a registry entry to checks-config.json (Layer 1).
  *
  * Usage:
- *   pnpm exec tsx src/new-check.ts                    # Interactive mode
- *   pnpm exec tsx src/new-check.ts --id aghast-xss    # Mixed mode (prompts for missing)
- *   pnpm exec tsx src/new-check.ts --id ... --name ... # Full flag mode (no prompts)
+ *   npx tsx src/new-check.ts                    # Interactive mode
+ *   npx tsx src/new-check.ts --id aghast-xss    # Mixed mode (prompts for missing)
+ *   npx tsx src/new-check.ts --id ... --name ... # Full flag mode (no prompts)
  */
 
 import { readFile, writeFile, access, mkdir } from 'node:fs/promises';
@@ -548,7 +548,7 @@ export async function runNewCheck(args: string[]): Promise<void> {
   console.log(`\nNew check "${inputs.id}" created successfully.`);
 }
 
-// Auto-run when executed directly (pnpm new-check / tsx src/new-check.ts), but not when imported by cli.ts.
+// Auto-run when executed directly (npm run new-check / tsx src/new-check.ts), but not when imported by cli.ts.
 if (!process.env._AGHAST_CLI) {
   await import('dotenv/config');
   runNewCheck(process.argv.slice(2)).catch((err) => {
