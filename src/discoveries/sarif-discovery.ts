@@ -2,7 +2,7 @@
  * SARIF-based target discovery.
  *
  * Reads an external SARIF file (e.g. from another SAST tool) and
- * returns findings as targets for AI validation.
+ * returns findings as targets for AI analysis.
  */
 
 import { readFile } from 'node:fs/promises';
@@ -32,15 +32,14 @@ function buildFindingPromptEnrichment(
 You MUST:
 - Analyze ONLY this specific finding — do not search for or report issues at other locations
 - You may read other files to understand context (e.g., imports, type definitions, data flow), but only report issues for this finding
-- If this finding is a false positive (not actually vulnerable), return {"issues": []}
 - Do NOT scan the broader repository for other vulnerability patterns
 `;
 }
 
 export const sarifDiscovery: TargetDiscovery = {
   name: 'sarif',
-  defaultGenericPrompt: 'sarif-validation-instructions.md',
-  needsInstructions: false,
+  defaultGenericPrompt: 'generic-instructions.md',
+  needsInstructions: true,
 
   async discover(
     check: SecurityCheck,

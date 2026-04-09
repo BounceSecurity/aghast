@@ -28,10 +28,10 @@ Six core components orchestrated by the Security Scanner:
 
 **Check types**: Three check types with pluggable discovery:
 - `repository` — AI analyzes the whole repo (no discovery needed)
-- `targeted` — A discovery method finds specific code locations, AI analyzes each independently. Discovery methods: `semgrep` (Semgrep rules), `openant` (OpenAnt code units with call graph context), `sarif` (external SARIF file findings validated by AI)
+- `targeted` — A discovery method finds specific code locations, AI analyzes each independently. Discovery methods: `semgrep` (Semgrep rules), `openant` (OpenAnt code units with call graph context), `sarif` (external SARIF file findings)
 - `static` — A discovery method finds issues mapped directly to results, no AI involvement. Discovery methods: `semgrep`
 
-Each targeted/static check specifies `checkTarget.discovery` (e.g., `semgrep`, `openant`, `sarif`) to select the discovery strategy.
+Each targeted/static check specifies `checkTarget.discovery` (e.g., `semgrep`, `openant`, `sarif`) to select the discovery strategy. Targeted checks can also set `checkTarget.analysisMode` to control what the AI does with each target: `custom` (default, uses `instructionsFile`), `false-positive-validation`, or `general-vuln-discovery` (built-in prompt templates, no `instructionsFile` needed).
 
 ## Key Data Flow
 
@@ -146,7 +146,7 @@ Precedence: CLI flags > environment variables > runtime config > built-in defaul
 - `src/formatters/types.ts` — Formatter type definitions
 - `.github/workflows/release.yml` — Release workflow (version bump, README update, tag, build, GitHub release)
 - `eslint.config.js` — ESLint flat config (TypeScript + recommended rules)
-- `config/prompts/` — Generic prompt templates prepended to all check executions (selected via `--generic-prompt` or `AGHAST_GENERIC_PROMPT`); includes `sarif-validation-instructions.md` used automatically for targeted checks with sarif discovery
+- `config/prompts/` — Generic prompt templates prepended to all check executions (selected via `--generic-prompt` or `AGHAST_GENERIC_PROMPT`); includes `false-positive-validation.md` and `general-vuln-discovery.md` used when `analysisMode` is set in check definitions
 - `docs/README.md` — Documentation index
 - `docs/getting-started.md` — Getting started guide (installation, setup)
 - `docs/trying-it-out.md` — Example checks walkthrough and first scan guide
@@ -176,7 +176,7 @@ Users install via `npm install -g @bouncesecurity/aghast@<version>` (requires `~
 
 ## Documentation
 
-Doc pages in `docs/` have navigation (index breadcrumb, previous/next links). When adding, removing, or reordering doc pages, update the navigation links in all affected pages and the index in `docs/README.md`. The page order is: Getting Started → Trying It Out → Scanning → Creating Checks → Configuration Reference → Development.
+Doc pages in `docs/` have navigation (index breadcrumb, previous/next links). When adding, removing, or reordering doc pages, update the navigation links in all affected pages and the index in `docs/README.md`. The page order is: How It Works → Getting Started → Trying It Out → Scanning → Creating Checks → Configuration Reference → Development.
 
 ## Licensing
 This project is licensed under AGPL v3. Copyright (C) 2026 Bounce Consulting Ltd.

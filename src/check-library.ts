@@ -209,13 +209,11 @@ export async function loadCheckDefinition(checkFolderPath: string): Promise<Chec
   const def = parsed as CheckDefinition;
 
   // instructionsFile is required for check types where needsInstructions is true,
-  // UNLESS the discovery type provides a self-contained generic prompt.
-  // Discovery types with self-contained prompts (openant, sarif) don't need instructions.
-  const SELF_CONTAINED_DISCOVERIES = new Set(['openant', 'sarif']);
-  const discoveryIsSelfContained = def.checkTarget?.discovery
-    ? SELF_CONTAINED_DISCOVERIES.has(def.checkTarget.discovery)
-    : false;
-  if (getCheckType(def.checkTarget?.type).needsInstructions && !discoveryIsSelfContained && !def.instructionsFile) {
+  // UNLESS analysisMode is a built-in mode (false-positive-validation, general-vuln-discovery)
+  // which provides its own prompt template.
+  const builtInMode = def.checkTarget?.analysisMode === 'false-positive-validation'
+    || def.checkTarget?.analysisMode === 'general-vuln-discovery';
+  if (getCheckType(def.checkTarget?.type).needsInstructions && !builtInMode && !def.instructionsFile) {
     throw new Error(
       `Check definition "${defPath}" is missing required field "instructionsFile"`,
     );
@@ -389,12 +387,10 @@ export async function validateCheck(
     errors.push('Check is missing a valid "id" field');
   }
 
-  // Discovery types with self-contained generic prompts don't need instructions
-  const SELF_CONTAINED_DISCOVERIES_V = new Set(['openant', 'sarif']);
-  const discoverySelfContained = check.checkTarget?.discovery
-    ? SELF_CONTAINED_DISCOVERIES_V.has(check.checkTarget.discovery)
-    : false;
-  if (!getCheckType(check.checkTarget?.type).needsInstructions || discoverySelfContained) {
+  // Built-in analysis modes provide their own prompt template — no instructionsFile needed
+  const builtInModeV = check.checkTarget?.analysisMode === 'false-positive-validation'
+    || check.checkTarget?.analysisMode === 'general-vuln-discovery';
+  if (!getCheckType(check.checkTarget?.type).needsInstructions || builtInModeV) {
     // No instructionsFile validation needed for this check type/discovery
   } else if (!check.instructionsFile) {
     errors.push('Check is missing required "instructionsFile" field');

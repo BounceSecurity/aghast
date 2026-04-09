@@ -24,7 +24,7 @@ aghast scan <repo-path> --config-dir <path> [options]
 | `--debug` | Shorthand for `--log-level debug` |
 | `--log-level <level>` | Console log level: `error`, `warn`, `info`, `debug`, `trace` (default: `info`) |
 | `--log-file <path>` | Write all log output to a file (captures at `trace` level by default) |
-| `--log-type <type>` | Log file handler type (default: `file`). Pluggable — new types can be added |
+| `--log-type <type>` | Log file handler type (default: `file`). Pluggable; new types can be added |
 | `--model <model>` | AI model override (e.g. `claude-sonnet-4-20250514`) |
 | `--ai-provider <name>` | AI provider name (default: `claude-code`) |
 | `--generic-prompt <file>` | Generic prompt template filename |
@@ -58,8 +58,8 @@ An optional `runtime-config.json` in the config directory (or specified via `--r
 
 Results are written to `security_checks_results.<ext>` in the target repo by default (override with `--output`).
 
-- **JSON** (default) — structured results with summary, per-check details, issues, and token usage
-- **SARIF** — SARIF 2.1.0 output compatible with GitHub Code Scanning and other SARIF viewers
+- **JSON** (default) - structured results with summary, per-check details, issues, and token usage
+- **SARIF** - SARIF 2.1.0 output compatible with GitHub Code Scanning and other SARIF viewers
 
 ## Check Types
 
@@ -78,6 +78,16 @@ Discovery methods for `targeted` and `static` checks:
 | `semgrep` | Semgrep installed | Runs Semgrep rules to discover specific code locations |
 | `sarif` | SARIF file in check definition | Reads findings from an external SARIF file |
 | `openant` | OpenAnt + Python 3.11+ | Runs `openant parse` on the target repo to extract code units with call graph context |
+
+Analysis modes for `targeted` checks (`checkTarget.analysisMode`):
+
+| Mode | Discovery | Description |
+|------|-----------|-------------|
+| `custom` (default) | All | AI analyzes each target using your custom instructions markdown file |
+| `false-positive-validation` | `semgrep`, `sarif` | AI validates each finding as a true or false positive |
+| `general-vuln-discovery` | All | AI scans each target for a broad range of security vulnerabilities |
+
+Built-in modes (`false-positive-validation`, `general-vuln-discovery`) provide their own prompt template and don't require an instructions file. See [How It Works](how-it-works.md#three-check-types) for details.
 
 See the [Configuration Reference](configuration.md) for check definition schemas and result statuses.
 

@@ -416,9 +416,10 @@ export async function runScan(args: string[]): Promise<void> {
     // checkTarget rules already resolved by resolveChecks — no additional path resolution needed
 
     // Checks that don't require instructions use synthetic details (unless they provided one optionally).
-    // Discovery types with self-contained prompts (openant, sarif) also don't need instructions.
-    const selfContainedDiscovery = check.checkTarget?.discovery === 'openant' || check.checkTarget?.discovery === 'sarif';
-    if ((!getCheckType(check.checkTarget?.type).needsInstructions || selfContainedDiscovery) && !check.instructionsFile) {
+    // Built-in analysis modes (false-positive-validation, general-vuln-discovery) also don't need instructions.
+    const builtInMode = check.checkTarget?.analysisMode === 'false-positive-validation'
+      || check.checkTarget?.analysisMode === 'general-vuln-discovery';
+    if ((!getCheckType(check.checkTarget?.type).needsInstructions || builtInMode) && !check.instructionsFile) {
       checksWithDetails.push({
         check,
         details: { id: check.id, name: check.name, overview: '', content: '' },

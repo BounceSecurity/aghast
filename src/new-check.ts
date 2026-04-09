@@ -58,6 +58,7 @@ interface ParsedFlags {
   discovery?: string;
   semgrepRules?: string;
   sarifFile?: string;
+  analysisMode?: string;
   maxTargets?: string;
   language?: string;
   configDir?: string;
@@ -79,6 +80,7 @@ const CLI_FLAG_MAP: Record<string, keyof ParsedFlags> = {
   '--discovery': 'discovery',
   '--semgrep-rules': 'semgrepRules',
   '--sarif-file': 'sarifFile',
+  '--analysis-mode': 'analysisMode',
   '--max-targets': 'maxTargets',
   '--language': 'language',
   '--config-dir': 'configDir',
@@ -105,10 +107,7 @@ function parseFlags(args: string[]): ParsedFlags {
 
 async function promptForMissing(flags: ParsedFlags): Promise<Required<Omit<ParsedFlags, 'configDir'>>> {
   const needsPrompt =
-    !flags.id || !flags.name ||
-    !flags.checkOverview || !flags.checkItems ||
-    !flags.passCondition || !flags.failCondition ||
-    !flags.checkType;
+    !flags.id || !flags.name || !flags.checkType;
 
   let rl: ReturnType<typeof createInterface> | undefined;
   if (needsPrompt) {
@@ -139,45 +138,72 @@ async function promptForMissing(flags: ParsedFlags): Promise<Required<Omit<Parse
     return answer.trim();
   }
 
-  async function askWithDefault(label: string, defaultValue: string, existing?: string): Promise<string> {
+  async function askChoice(label: string, choices: string[], defaultValue: string, existing?: string): Promise<string> {
     if (existing !== undefined) return existing;
     if (!rl) return defaultValue;
-    const answer = await rl.question(`${label} [${defaultValue}]: `);
-    return answer.trim() || defaultValue;
+    const numbered = choices.map((c, i) => `  ${i + 1}) ${c}${c === defaultValue ? ' (default)' : ''}`).join('\n');
+    const maxAttempts = 3;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      const answer = await rl.question(`${label}:\n${numbered}\nChoice: `);
+      const trimmed = answer.trim();
+      if (!trimmed) return defaultValue;
+      // Accept by number or by name
+      const byNumber = parseInt(trimmed, 10);
+      if (!isNaN(byNumber) && byNumber >= 1 && byNumber <= choices.length) return choices[byNumber - 1];
+      if (choices.includes(trimmed)) return trimmed;
+      const remaining = maxAttempts - attempt;
+      if (remaining > 0) {
+        console.error(`Invalid choice "${trimmed}". Enter a number (1-${choices.length}) or name. ${remaining} ${remaining === 1 ? 'attempt' : 'attempts'} remaining.`);
+      }
+    }
+    console.error(formatError(ERROR_CODES.E1003, `${label} — no valid choice after ${maxAttempts} attempts`));
+    rl.close();
+    process.exit(1);
   }
 
+  // Phase 1: Basic identity
   const result = {
     id: await ask('Check ID (e.g. aghast-xss)', flags.id),
     name: await ask('Check name (e.g. XSS Prevention)', flags.name),
-    severity: await askOptional('Severity (critical/high/medium/low/informational)', flags.severity),
-    confidence: await askOptional('Confidence (high/medium/low)', flags.confidence),
-    model: flags.model !== undefined ? flags.model : await askOptional('AI model override (e.g. claude-sonnet-4-6)', undefined),
-    repositories: flags.repositories !== undefined ? flags.repositories : await askOptional('Repositories (comma-separated URLs, or empty for all)', undefined),
-    checkOverview: await ask('Check overview / description', flags.checkOverview),
-    checkItems: await ask('Check items (comma-separated)', flags.checkItems),
-    passCondition: await ask('PASS condition', flags.passCondition),
-    failCondition: await ask('FAIL condition', flags.failCondition),
-    flagCondition: await askOptional('FLAG condition (requires human investigation)', flags.flagCondition),
-    checkType: await askWithDefault(`Check type (${getValidCheckTypes().join('/')})`, 'repository', flags.checkType),
+    severity: '',
+    confidence: '',
+    model: '',
+    repositories: '',
+    checkOverview: '',
+    checkItems: '',
+    passCondition: '',
+    failCondition: '',
+    flagCondition: '',
+    checkType: '',
     discovery: '',
+    analysisMode: '',
     semgrepRules: '',
     sarifFile: '',
     maxTargets: '',
     language: '',
   };
 
+  // Phase 2: Check type, discovery, and analysis mode (determines what other questions to ask)
+  result.checkType = await askChoice('Check type', getValidCheckTypes(), 'repository', flags.checkType);
+
   if (result.checkType === 'targeted' || result.checkType === 'static') {
-    const discoveryChoices = result.checkType === 'targeted' ? 'semgrep/openant/sarif' : 'semgrep';
-    result.discovery = await askWithDefault(`Discovery (${discoveryChoices})`, 'semgrep', flags.discovery);
+    const discoveryChoices = result.checkType === 'targeted' ? ['semgrep', 'openant', 'sarif'] : ['semgrep'];
+    result.discovery = await askChoice('Discovery method', discoveryChoices, 'semgrep', flags.discovery);
     result.maxTargets = await askOptional('Max targets', flags.maxTargets);
+
+    if (result.checkType === 'targeted') {
+      const modeChoices = result.discovery === 'openant'
+        ? ['custom', 'general-vuln-discovery']
+        : ['custom', 'false-positive-validation', 'general-vuln-discovery'];
+      result.analysisMode = await askChoice('Analysis mode', modeChoices, 'custom', flags.analysisMode);
+    }
 
     if (result.discovery === 'semgrep') {
       result.semgrepRules = flags.semgrepRules !== undefined
         ? flags.semgrepRules
         : await askOptional('Semgrep rule file paths (comma-separated, or press Enter to generate template)', undefined);
       if (!result.semgrepRules) {
-        // Language is required when generating a rule template + test file
-        result.language = await ask(`Language (${LANGUAGE_CHOICES.join('/')})`, flags.language);
+        result.language = await askChoice('Language', LANGUAGE_CHOICES, 'javascript', flags.language);
       } else {
         result.language = flags.language ?? '';
       }
@@ -186,6 +212,25 @@ async function promptForMissing(flags: ParsedFlags): Promise<Required<Omit<Parse
         ? flags.sarifFile
         : await ask('SARIF file path (relative to target repo, e.g. ./sast-results.sarif)', flags.sarifFile);
     }
+  }
+
+  // Phase 3: Severity, confidence, model, repositories
+  result.severity = await askChoice('Severity', ['critical', 'high', 'medium', 'low', 'informational'], 'high', flags.severity);
+  result.confidence = await askChoice('Confidence', ['high', 'medium', 'low'], 'medium', flags.confidence);
+  result.model = flags.model !== undefined ? flags.model : await askOptional('AI model override (e.g. claude-sonnet-4-6)', undefined);
+  result.repositories = flags.repositories !== undefined ? flags.repositories : await askOptional('Repositories (comma-separated URLs, or empty for all)', undefined);
+
+  // Phase 4: Instructions (only for check types/modes that need custom instructions)
+  const builtInAnalysisMode = result.analysisMode === 'false-positive-validation'
+    || result.analysisMode === 'general-vuln-discovery';
+  const needsCustomInstructions = getCheckType(result.checkType).needsInstructions && !builtInAnalysisMode;
+
+  if (needsCustomInstructions) {
+    result.checkOverview = await ask('Check overview / description', flags.checkOverview);
+    result.checkItems = await ask('Check items (comma-separated)', flags.checkItems);
+    result.passCondition = await ask('PASS condition', flags.passCondition);
+    result.failCondition = await ask('FAIL condition', flags.failCondition);
+    result.flagCondition = await askOptional('FLAG condition (requires human investigation)', flags.flagCondition);
   }
 
   if (rl) rl.close();
@@ -211,7 +256,7 @@ async function loadExistingRegistry(registryPath: string): Promise<RegistryFile>
 }
 
 function validateInputs(
-  inputs: { id: string; severity: string; confidence: string; checkType: string; discovery: string; maxTargets: string; language: string; sarifFile: string },
+  inputs: { id: string; severity: string; confidence: string; checkType: string; discovery: string; analysisMode: string; maxTargets: string; language: string; sarifFile: string },
   registry: RegistryFile,
 ): string[] {
   const errors: string[] = [];
@@ -253,6 +298,15 @@ function validateInputs(
     }
     if (inputs.discovery === 'sarif' && !inputs.sarifFile) {
       errors.push('sarifFile is required for sarif discovery');
+    }
+
+    if (inputs.analysisMode) {
+      const validModes = inputs.discovery === 'openant'
+        ? ['custom', 'general-vuln-discovery']
+        : ['custom', 'false-positive-validation', 'general-vuln-discovery'];
+      if (!validModes.includes(inputs.analysisMode)) {
+        errors.push(`Invalid analysis mode "${inputs.analysisMode}" for ${inputs.discovery} discovery. Must be one of: ${validModes.join(', ')}`);
+      }
     }
   }
 
@@ -343,6 +397,7 @@ function generateCheckDefinition(inputs: {
   model: string;
   checkType: string;
   discovery: string;
+  analysisMode: string;
   semgrepRules: string;
   sarifFile: string;
   maxTargets: string;
@@ -353,9 +408,10 @@ function generateCheckDefinition(inputs: {
   };
 
   // Only check types that need instructions get an instructionsFile.
-  // Discovery types with self-contained prompts (openant, sarif) don't need instructions.
-  const selfContained = inputs.discovery === 'openant' || inputs.discovery === 'sarif';
-  if (getCheckType(inputs.checkType).needsInstructions && !selfContained) {
+  // Built-in analysis modes provide their own prompt — no instructionsFile needed.
+  const builtInMode = inputs.analysisMode === 'false-positive-validation'
+    || inputs.analysisMode === 'general-vuln-discovery';
+  if (getCheckType(inputs.checkType).needsInstructions && !builtInMode) {
     def.instructionsFile = `${inputs.id}.md`;
   }
 
@@ -383,6 +439,9 @@ function generateCheckDefinition(inputs: {
       }
     } else if (inputs.discovery === 'sarif') {
       checkTarget.sarifFile = inputs.sarifFile;
+    }
+    if (inputs.analysisMode && inputs.analysisMode !== 'custom') {
+      checkTarget.analysisMode = inputs.analysisMode;
     }
     if (inputs.maxTargets) {
       checkTarget.maxTargets = parseInt(inputs.maxTargets, 10);
@@ -433,6 +492,7 @@ Options:
   --discovery <name>         Discovery mechanism for targeted/static checks. See below
   --semgrep-rules <paths>    Comma-separated Semgrep rule file paths (for semgrep discovery)
   --sarif-file <path>        SARIF file path in check definition, relative to repo (for sarif discovery)
+  --analysis-mode <mode>     Analysis mode for targeted checks (default: custom). See below
   --max-targets <n>          Maximum number of targets to analyze
   --language <lang>          Language for Semgrep template: python, javascript, typescript
   -h, --help                 Show this help message
@@ -449,6 +509,11 @@ Discovery mechanisms:
   semgrep     Semgrep rules find targets (targeted or static)
   openant     OpenAnt code analysis finds units (targeted only)
   sarif       External SARIF file provides findings (targeted only)
+
+Analysis modes (targeted checks only):
+  custom                      Use a custom instructions markdown file (default)
+  false-positive-validation   AI validates each finding as true/false positive (semgrep, sarif)
+  general-vuln-discovery      AI scans each target for general security vulnerabilities (all)
 
 Examples:
   aghast new-check --config-dir ./my-checks
@@ -514,8 +579,9 @@ export async function runNewCheck(args: string[]): Promise<void> {
   console.log(`Created: ${checkFolder}/${inputs.id}.json`);
 
   // Generate and write instructions.md (only when instructions are needed)
-  const selfContainedDiscovery = inputs.discovery === 'openant' || inputs.discovery === 'sarif';
-  if (getCheckType(inputs.checkType).needsInstructions && !selfContainedDiscovery) {
+  const builtInAnalysisMode = inputs.analysisMode === 'false-positive-validation'
+    || inputs.analysisMode === 'general-vuln-discovery';
+  if (getCheckType(inputs.checkType).needsInstructions && !builtInAnalysisMode) {
     const markdown = generateMarkdown(inputs);
     await writeFile(resolve(checkFolder, `${inputs.id}.md`), markdown, 'utf-8');
     console.log(`Created: ${checkFolder}/${inputs.id}.md`);

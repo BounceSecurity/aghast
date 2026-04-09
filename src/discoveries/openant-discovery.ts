@@ -16,8 +16,8 @@ const TAG = 'openant-discovery';
 
 export const openantDiscovery: TargetDiscovery = {
   name: 'openant',
-  defaultGenericPrompt: 'openant-security-instructions.md',
-  needsInstructions: false,
+  defaultGenericPrompt: 'generic-instructions.md',
+  needsInstructions: true,
 
   async discover(
     check: SecurityCheck,
