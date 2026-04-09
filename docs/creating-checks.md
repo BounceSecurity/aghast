@@ -24,6 +24,7 @@ Scaffolds a new security check interactively. Any values not provided via flags 
 | `--name <name>` | Human-readable check name |
 | `--check-type <type>` | `repository` (default), `targeted`, or `static` |
 | `--discovery <method>` | Discovery method: `semgrep`, `sarif`, or `openant` (required for `targeted` and `static` types) |
+| `--analysis-mode <mode>` | Analysis mode for targeted checks: `custom` (default), `false-positive-validation`, or `general-vuln-discovery` |
 | `--severity <level>` | `critical`, `high`, `medium`, `low`, or `informational` |
 | `--confidence <level>` | `high`, `medium`, or `low` |
 
@@ -33,10 +34,10 @@ Run `aghast new-check --help` for the full list of flags including `--check-over
 
 Running `new-check` creates a check folder in `<config-dir>/checks/<check-id>/` containing:
 
-- `<id>.json` — check definition (name, severity, type, discovery method, target config)
-- `<id>.md` — markdown instructions for AI analysis (not created for `static` checks)
-- `<id>.yaml` — Semgrep rule file (for checks with `semgrep` discovery only)
-- `tests/` — Semgrep rule test files (for checks with `semgrep` discovery only)
+- `<id>.json` - check definition (name, severity, type, discovery method, target config)
+- `<id>.md` - markdown instructions for AI analysis (not created for `static` checks or targeted checks using a built-in analysis mode)
+- `<id>.yaml` - Semgrep rule file (for checks with `semgrep` discovery only)
+- `tests/` - Semgrep rule test files (for checks with `semgrep` discovery only)
 
 The check is also registered in `checks-config.json`.
 

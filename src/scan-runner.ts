@@ -453,8 +453,15 @@ async function executeTargetedCheck(
 
     logProgress(TAG, `Found ${targets.length} targets to analyze (concurrency: ${effectiveConcurrency})`);
 
-    // 5. Build base prompt using discovery's default generic prompt (or CLI override)
-    const effectiveGenericPrompt = genericPromptOverride ?? discovery.defaultGenericPrompt;
+    // 5. Resolve generic prompt: CLI override > analysisMode prompt > discovery default
+    const analysisModePrompts: Record<string, string> = {
+      'false-positive-validation': 'false-positive-validation.md',
+      'general-vuln-discovery': 'general-vuln-discovery.md',
+    };
+    const analysisModePrompt = checkTarget.analysisMode
+      ? analysisModePrompts[checkTarget.analysisMode]
+      : undefined;
+    const effectiveGenericPrompt = genericPromptOverride ?? analysisModePrompt ?? discovery.defaultGenericPrompt;
     const basePrompt = await buildPrompt(checkInstructions, configDir, effectiveGenericPrompt);
     let completedCount = 0;
     const abortHandle: AbortHandle = { aborted: false };

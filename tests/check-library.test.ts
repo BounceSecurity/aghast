@@ -589,11 +589,21 @@ describe('validateCheck (sarif discovery)', () => {
     assert.ok(result.valid, `Expected valid, got errors: ${result.errors.join(', ')}`);
   });
 
-  it('targeted sarif check without instructionsFile passes validation (sarif has self-contained prompt)', async () => {
+  it('targeted sarif check without instructionsFile fails validation', async () => {
     const check = makeCheck({
       id: 'aghast-sv',
       instructionsFile: undefined,
       checkTarget: { type: 'targeted', discovery: 'sarif', sarifFile: './results.sarif' },
+    });
+    const result = await validateCheck(check, fixturesDir);
+    assert.ok(!result.valid, 'Expected invalid — sarif discovery requires instructionsFile');
+  });
+
+  it('targeted sarif check with built-in analysisMode passes without instructionsFile', async () => {
+    const check = makeCheck({
+      id: 'aghast-sv',
+      instructionsFile: undefined,
+      checkTarget: { type: 'targeted', discovery: 'sarif', sarifFile: './results.sarif', analysisMode: 'false-positive-validation' },
     });
     const result = await validateCheck(check, fixturesDir);
     assert.ok(result.valid, `Expected valid, got errors: ${result.errors.join(', ')}`);

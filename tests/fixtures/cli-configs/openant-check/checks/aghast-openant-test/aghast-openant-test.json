@@ -6,6 +6,7 @@
   "checkTarget": {
     "type": "targeted",
     "discovery": "openant",
+    "analysisMode": "general-vuln-discovery",
     "maxTargets": 50
   }
 }

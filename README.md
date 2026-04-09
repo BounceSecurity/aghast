@@ -8,6 +8,10 @@
 > **Warning**
 > AGHAST is in **early alpha**. APIs, CLI flags, configuration formats, and output schemas may change between releases without notice. Use in production CI/CD pipelines at your own risk.
 
+<!-- TODO: pick one of these one-liners -->
+<!-- Option 1: Find the security issues generic scanners miss — define checks specific to your codebase using static rules, AI prompts, or both. -->
+<!-- Option 2: A security scanner for the questions only your team can ask — combines static rules with AI to find code-specific and organization-specific issues. -->
+<!-- Option 3: Custom security checks for your codebase — combine static rules with AI to find what generic scanners can't. -->
 An open source tool that combines static scanning rules with AI prompts to find code-specific and company-specific security issues.
 
 Define static rules, security checks as markdown instructions, point AGHAST at a repo, and get structured results (JSON or SARIF).
@@ -18,7 +22,7 @@ Define static rules, security checks as markdown instructions, point AGHAST at a
 
 ## What AGHAST Does
 
-You can read the full background to this tool in our blogpost [here](https://bouncesecurity.com/aghast) but, to cut to the chase, AGHAST uses three core mechanisms:
+You can read the full background to this tool in our blogpost [here](https://bouncesecurity.com/aghast). For a conceptual walkthrough of how each check type works, see [How It Works](docs/how-it-works.md). To cut to the chase, AGHAST uses three core mechanisms:
 
 - **Repository-wide AI analysis** — let the LLM analyze the whole repo against your security check instructions
 - **Targeted checks** — a pluggable discovery method (Semgrep rules, [OpenAnt](https://github.com/knostic/OpenAnt/) code units, or external SARIF findings) identifies specific code locations, then AI analyzes each independently. This is the sweet spot for most use cases
@@ -45,21 +49,9 @@ There are almost certainly other ways of achieving this, but to our mind, this a
 - **[OpenAnt](https://github.com/knostic/OpenAnt/)** (Apache-2.0, optional) + **Python 3.11+** — only needed for checks that use OpenAnt discovery
 - **Anthropic API key** — for AI-based checks (not needed for static checks)
 
-## Installation
-
-See the [Getting Started Guide](docs/getting-started.md) for full installation and setup instructions.
-
 ## Quick Start
 
-Set your API key, create a check, and run a scan:
-
-```bash
-export ANTHROPIC_API_KEY=your-api-key
-aghast new-check --config-dir ./my-checks
-aghast scan /path/to/target-repo --config-dir ./my-checks
-```
-
-See the [Getting Started Guide](docs/getting-started.md) for a full walkthrough.
+See the [Getting Started guide](docs/getting-started.md) to install aghast and [Trying It Out](docs/trying-it-out.md) to run your first scan.
 
 ## Example Output
 
@@ -95,6 +87,7 @@ Results are structured JSON (or SARIF) with per-check status and detailed issues
 
 ## Documentation
 
+- [How It Works](docs/how-it-works.md) — conceptual overview of the three check types
 - [Getting Started](docs/getting-started.md) — installation, setup, and first scan
 - [Trying It Out](docs/trying-it-out.md) — example checks walkthrough and first scan guide
 - [Scanning](docs/scanning.md) — scan command options, environment variables, output formats

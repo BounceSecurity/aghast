@@ -38,10 +38,10 @@ Run `aghast new-check --help` for all available options, or see [Creating Checks
 Then run your check:
 
 ```bash
-aghast scan /path/to/target-repo --config-dir ./my-checks
+aghast scan /path/to/target-repo --config-dir ./my-checks --output-format sarif
 ```
 
-Results are written to `security_checks_results.json` in the target repo by default. Use `--output-format sarif` for SARIF 2.1.0 output compatible with GitHub Code Scanning.
+Results are written to `security_checks_results.sarif` in the target repo, a SARIF 2.1.0 file compatible with GitHub Code Scanning and other SARIF viewers.
 
 ## Option B: Use the example checks
 
@@ -51,15 +51,19 @@ The [aghast-bounce-checks-public](https://github.com/BounceSecurity/aghast-bounc
 git clone https://github.com/BounceSecurity/aghast-bounce-checks-public.git
 ```
 
-The repo includes five example checks demonstrating the three check types (`repository`, `targeted`, `static`) with different discovery methods (`semgrep`, `sarif`, `openant`) — with test codebases pre-configured in `checks-config.json`. Each example is described in detail below.
+The repo includes five example checks demonstrating the three check types (`repository`, `targeted`, `static`) with different discovery methods (`semgrep`, `sarif`, `openant`), with test codebases pre-configured in `checks-config.json`. Each example is described in detail below.
 
 ### Example 1: Business Logic Bypass (`repository` type)
 
-**Check type**: `repository` — analyzes the whole codebase with AI. No Semgrep needed.
+#### Check type
 
-**What it does**: Looks for endpoints that process financial operations (orders, payments, refunds, coupons) without properly validating client-supplied values. For example, it flags endpoints that accept negative quantities, use client-supplied prices instead of database lookups, allow duplicate coupon applications, or permit refunds exceeding the original order total.
+`repository` - analyzes the whole codebase with AI. No Semgrep needed.
 
-**Check definition** (`aghast-js-business-logic-bypass.json`):
+#### What it does
+
+Looks for endpoints that process financial operations (orders, payments, refunds, coupons) without properly validating client-supplied values. For example, it flags endpoints that accept negative quantities, use client-supplied prices instead of database lookups, allow duplicate coupon applications, or permit refunds exceeding the original order total.
+
+#### Check definition (`aghast-js-business-logic-bypass.json`):
 
 ```json
 {
@@ -71,28 +75,37 @@ The repo includes five example checks demonstrating the three check types (`repo
 }
 ```
 
-Since there is no `checkTarget` field, this is a `repository` check — the AI receives the entire codebase and analyzes it according to the instructions in the markdown file. This is the simplest check type to create: you only need a JSON definition and a markdown instructions file.
+Since there is no `checkTarget` field, this is a `repository` check. The AI receives the entire codebase and analyzes it according to the instructions in the markdown file. This is the simplest check type to create: you only need a JSON definition and a markdown instructions file.
 
-**Test codebase**: `test-codebases/test-8-business-logic-bypass/` — a Node.js Express app with order and payment routes containing intentional business logic flaws.
+#### Test codebase
 
-**Run it** (requires API key, no Semgrep):
+`test-codebases/test-8-business-logic-bypass/` - a Node.js Express app with order and payment routes containing intentional business logic flaws.
+
+#### Run it (requires API key, no Semgrep):
 
 ```bash
 aghast scan ./aghast-bounce-checks-public/test-codebases/test-8-business-logic-bypass \
-  --config-dir ./aghast-bounce-checks-public
+  --config-dir ./aghast-bounce-checks-public \
+  --output-format sarif
 ```
 
-**Expected result**: FAIL with 4 issues — negative quantity accepted in add-to-cart, client-supplied price used in express checkout, duplicate coupon application allowed, and refund amount not validated against the order total.
+#### Expected result
+
+FAIL with 4 issues: negative quantity accepted in add-to-cart, client-supplied price used in express checkout, duplicate coupon application allowed, and refund amount not validated against the order total.
 
 ---
 
 ### Example 2: Important Validations before AI Queries (`targeted` + `semgrep` discovery)
 
-**Check type**: `targeted` with `semgrep` discovery — Semgrep discovers specific code locations, then the AI analyzes each one independently.
+#### Check type
 
-**What it does**: Finds Python endpoints that call `send_ai_query()` and checks whether each one performs all four required validations before dispatching the query: role check (JWT manager role), query length check (< 1000 chars), business hours check (9–17 Mon–Fri), and malicious prompt check.
+`targeted` with `semgrep` discovery. Semgrep discovers specific code locations, then the AI analyzes each one independently.
 
-**Check definition** (`aghast-importantvalidations-mc.json`):
+#### What it does
+
+Finds Python endpoints that call `send_ai_query()` and checks whether each one performs all four required validations before dispatching the query: role check (JWT manager role), query length check (< 1000 chars), business hours check (9–17 Mon–Fri), and malicious prompt check.
+
+#### Check definition (`aghast-importantvalidations-mc.json`):
 
 ```json
 {
@@ -129,26 +142,35 @@ rules:
 
 Each Semgrep match becomes a separate target. The AI then analyzes each target individually using the instructions from the markdown file, which describe what validations to look for.
 
-**Test codebase**: `test-codebases/test-2-importantvalidations-easy/` — a Python Flask app with multiple route handlers that call the AI backend, some missing required validations.
+#### Test codebase
 
-**Run it** (requires API key + Semgrep):
+`test-codebases/test-2-importantvalidations-easy/` - a Python Flask app with multiple route handlers that call the AI backend, some missing required validations.
+
+#### Run it (requires API key + Semgrep):
 
 ```bash
 aghast scan ./aghast-bounce-checks-public/test-codebases/test-2-importantvalidations-easy \
-  --config-dir ./aghast-bounce-checks-public
+  --config-dir ./aghast-bounce-checks-public \
+  --output-format sarif
 ```
 
-**Expected result**: FAIL with 2 issues — Semgrep finds 3 targets (endpoints calling `send_ai_query()`), and the AI reports that the `/run` and `/execute` endpoints are each missing one or more of the four required validations. The `/submit` endpoint passes all four checks.
+#### Expected result
+
+FAIL with 2 issues: Semgrep finds 3 targets (endpoints calling `send_ai_query()`), and the AI reports that the `/run` and `/execute` endpoints are each missing one or more of the four required validations. The `/submit` endpoint passes all four checks.
 
 ---
 
 ### Example 3: Missing API Token Decorator (`static` + `semgrep` discovery)
 
-**Check type**: `static` with `semgrep` discovery — Semgrep findings are mapped directly to issues with no AI involvement.
+#### Check type
 
-**What it does**: Detects Flask route handlers that are missing the `@require_api_token` decorator, which would allow unauthenticated access. Health/status endpoints are excluded via a regex filter.
+`static` with `semgrep` discovery. Semgrep findings are mapped directly to issues with no AI involvement.
 
-**Check definition** (`aghast-py-missing-token-decorator.json`):
+#### What it does
+
+Detects Flask route handlers that are missing the `@require_api_token` decorator, which would allow unauthenticated access. Health/status endpoints are excluded via a regex filter.
+
+#### Check definition (`aghast-py-missing-token-decorator.json`):
 
 ```json
 {
@@ -164,7 +186,7 @@ aghast scan ./aghast-bounce-checks-public/test-codebases/test-2-importantvalidat
 }
 ```
 
-With `checkTarget.type` set to `static`, there is no instructions file — the Semgrep rule does all the work:
+With `checkTarget.type` set to `static`, there is no instructions file. The Semgrep rule does all the work:
 
 ```yaml
 rules:
@@ -189,28 +211,37 @@ rules:
     severity: ERROR
 ```
 
-Each Semgrep match is mapped directly to a `SecurityIssue` — no API key needed.
+Each Semgrep match is mapped directly to a `SecurityIssue`. No API key needed.
 
-**Test codebase**: `test-codebases/test-7-missing-token-decorator/` — a Python Flask app with several route handlers, some missing the required decorator.
+#### Test codebase
 
-**Run it** (requires Semgrep, no API key):
+`test-codebases/test-7-missing-token-decorator/` - a Python Flask app with several route handlers, some missing the required decorator.
+
+#### Run it (requires Semgrep, no API key):
 
 ```bash
 aghast scan ./aghast-bounce-checks-public/test-codebases/test-7-missing-token-decorator \
-  --config-dir ./aghast-bounce-checks-public
+  --config-dir ./aghast-bounce-checks-public \
+  --output-format sarif
 ```
 
-**Expected result**: FAIL with 4 issues — four endpoints across three route files are missing the `@require_api_token` decorator. Health and readiness endpoints are correctly excluded by the Semgrep rule's regex filter.
+#### Expected result
+
+FAIL with 4 issues: four endpoints across three route files are missing the `@require_api_token` decorator. Health and readiness endpoints are correctly excluded by the Semgrep rule's regex filter.
 
 ---
 
 ### Example 4: SAST Finding Verification (`targeted` + `sarif` discovery)
 
-**Check type**: `targeted` with `sarif` discovery — reads findings from a SARIF file specified in the check definition and has the AI validate each one as a true or false positive.
+#### Check type
 
-**What it does**: Takes SARIF output from a generic SAST tool and verifies whether each reported finding is actually exploitable. The AI reads the code at each flagged location and considers context like framework protections, input validation, and data flow to determine if the finding is real.
+`targeted` with `sarif` discovery. Reads findings from a SARIF file specified in the check definition and has the AI validate each one as a true or false positive.
 
-**Check definition** (`aghast-sast-verify.json`):
+#### What it does
+
+Takes SARIF output from a generic SAST tool and verifies whether each reported finding is actually exploitable. The AI reads the code at each flagged location and considers context like framework protections, input validation, and data flow to determine if the finding is real.
+
+#### Check definition (`aghast-sast-verify.json`):
 
 ```json
 {
@@ -227,30 +258,41 @@ aghast scan ./aghast-bounce-checks-public/test-codebases/test-7-missing-token-de
 }
 ```
 
-The optional `instructionsFile` provides additional context for the AI (e.g., "this app uses Jinja2 with autoescaping enabled"). The sarif discovery has a self-contained generic prompt, so instructions are not required. The `sarifFile` field in the check definition points to the SARIF file containing findings to validate, resolved relative to the target repo.
+The `instructionsFile` provides custom instructions for the AI, in this case context about the app's framework protections. This check uses the default `custom` analysis mode, so an instructions file is required. (Checks using a built-in analysis mode like `false-positive-validation` or `general-vuln-discovery` don't need one.) The `sarifFile` field points to the SARIF file containing findings to analyze, resolved relative to the target repo.
 
-**Test codebase**: `test-codebases/test-9-sast-false-positives/` — a Python Flask app with a mix of true and false positives for XSS, open redirect, and SSRF.
+#### Test codebase
 
-**Sample SARIF file**: `test-codebases/test-9-sast-false-positives/sast-results.sarif` — contains 7 findings (3 true positives, 4 false positives).
+`test-codebases/test-9-sast-false-positives/` - a Python Flask app with a mix of true and false positives for XSS, open redirect, and SSRF.
 
-**Run it** (requires API key, no Semgrep needed):
+#### Sample SARIF file
+
+`test-codebases/test-9-sast-false-positives/sast-results.sarif` - contains 7 findings (3 true positives, 4 false positives).
+
+#### Run it (requires API key, no Semgrep needed):
 
 ```bash
 aghast scan ./aghast-bounce-checks-public/test-codebases/test-9-sast-false-positives \
-  --config-dir ./aghast-bounce-checks-public
+  --config-dir ./aghast-bounce-checks-public \
+  --output-format sarif
 ```
 
-**Expected result**: FAIL with ~3 issues — the AI should confirm the true positive findings (unescaped user input in HTML response, unvalidated redirect, user-supplied URL fetched without validation) and dismiss the false positives (autoescaped template output, allowlist-validated redirects, hardcoded internal URLs).
+#### Expected result
+
+FAIL with ~3 issues: the AI should confirm the true positive findings (unescaped user input in HTML response, unvalidated redirect, user-supplied URL fetched without validation) and dismiss the false positives (autoescaped template output, allowlist-validated redirects, hardcoded internal URLs).
 
 ---
 
 ### Example 5: Various Security Vulnerabilities (`targeted` + `openant` discovery)
 
-**Check type**: `targeted` with `openant` discovery — runs `openant parse` on the target repo to extract code units, then has the AI independently analyze each unit for security vulnerabilities.
+#### Check type
 
-**What it does**: Analyzes individual functions extracted by [OpenAnt](https://github.com/knostic/OpenAnt) for a range of security issues including race conditions, broken access control, SSRF, SQL injection, mass assignment, and insecure randomness. The AI browses the live codebase to trace data flow and verify each finding.
+`targeted` with `openant` discovery. Runs `openant parse` on the target repo to extract code units, then has the AI independently analyze each unit for security vulnerabilities.
 
-**Check definition** (`aghast-openant-various-vulns.json`):
+#### What it does
+
+Analyzes individual functions extracted by [OpenAnt](https://github.com/knostic/OpenAnt) for a range of security issues including race conditions, broken access control, SSRF, SQL injection, mass assignment, and insecure randomness. The AI browses the live codebase to trace data flow and verify each finding.
+
+#### Check definition (`aghast-openant-various-vulns.json`):
 
 ```json
 {
@@ -262,25 +304,31 @@ aghast scan ./aghast-bounce-checks-public/test-codebases/test-9-sast-false-posit
   "checkTarget": {
     "type": "targeted",
     "discovery": "openant",
+    "analysisMode": "general-vuln-discovery",
     "concurrency": 10
   }
 }
 ```
 
-With `checkTarget.type` set to `targeted` and `"discovery": "openant"`, aghast runs `openant parse` on the target repo to extract code units. A discovery-specific generic prompt is automatically prepended. An optional `instructionsFile` can provide additional check-specific instructions. The `model` field overrides the default model for this check (sonnet provides more consistent results for complex security analysis). The `concurrency` field controls how many units are analyzed in parallel.
+With `checkTarget.type` set to `targeted` and `"discovery": "openant"`, aghast runs `openant parse` on the target repo to extract code units. The `analysisMode` of `general-vuln-discovery` uses a built-in prompt that scans each unit for a broad range of security vulnerabilities, so no custom instructions file is needed. The `model` field overrides the default model for this check (sonnet provides more consistent results for complex security analysis). The `concurrency` field controls how many units are analyzed in parallel.
 
-OpenAnt extracts code units with call graph metadata (callers, callees, entry point status) but **not** OpenAnt's security classifications — the AI forms its own independent judgment from the code.
+OpenAnt extracts code units with call graph metadata (callers, callees, entry point status) but **not** OpenAnt's security classifications. The AI forms its own independent judgment from the code.
 
-**Test codebase**: `test-codebases/test-10-various-vulns/` — a Node.js Express inventory management API with a mix of vulnerable and safe code patterns. Vulnerable functions have safe counterparts nearby (e.g., a single order endpoint with a race condition alongside a bulk order endpoint with proper transaction locking).
+#### Test codebase
 
-**Run it** (requires API key + OpenAnt + Python 3.11+, no Semgrep needed):
+`test-codebases/test-10-various-vulns/` - a Node.js Express inventory management API with a mix of vulnerable and safe code patterns. Vulnerable functions have safe counterparts nearby (e.g., a single order endpoint with a race condition alongside a bulk order endpoint with proper transaction locking).
+
+#### Run it (requires API key + OpenAnt + Python 3.11+, no Semgrep needed):
 
 ```bash
 aghast scan ./aghast-bounce-checks-public/test-codebases/test-10-various-vulns \
-  --config-dir ./aghast-bounce-checks-public
+  --config-dir ./aghast-bounce-checks-public \
+  --output-format sarif
 ```
 
-**Expected result**: FAIL with ~8 issues — race condition in order creation, mass assignment allowing role escalation, insecure randomness in password reset tokens, SQL injection in custom report export, SSRF in custom export endpoint, SSRF via unvalidated webhook registration and test delivery, and broken object-level authorization in order retrieval.
+#### Expected result
+
+FAIL with ~8 issues: race condition in order creation, mass assignment allowing role escalation, insecure randomness in password reset tokens, SQL injection in custom report export, SSRF in custom export endpoint, SSRF via unvalidated webhook registration and test delivery, and broken object-level authorization in order retrieval.
 
 > **Note**: Because the AI independently analyzes each code unit, results may vary slightly between runs. The sonnet model provides the most consistent results.
 
@@ -292,9 +340,9 @@ The checks in `checks-config.json` include a `repositories` field that limits wh
 
 ## What's next
 
-- [Scanning](scanning.md) — all scan options, output formats, and environment variables
-- [Creating Checks](creating-checks.md) — detailed reference for the `new-check` command
-- [Configuration Reference](configuration.md) — config directory structure, check schemas, and runtime config
+- [Scanning](scanning.md) - all scan options, output formats, and environment variables
+- [Creating Checks](creating-checks.md) - detailed reference for the `new-check` command
+- [Configuration Reference](configuration.md) - config directory structure, check schemas, and runtime config
 
 ---
 

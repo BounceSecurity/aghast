@@ -227,14 +227,14 @@ describe('new-check utility', () => {
     assert.equal(checkDef.confidence, 'medium');
   });
 
-  it('omits severity and confidence from check.json when not provided', async () => {
+  it('uses default severity and confidence when not provided', async () => {
     const result = await runNewCheck(allFlags());
 
     assert.equal(result.exitCode, 0, `CLI failed: ${result.stderr}`);
 
     const checkDef = JSON.parse(await readFile(resolve(checksDir, 'aghast-test', 'aghast-test.json'), 'utf-8'));
-    assert.equal(checkDef.severity, undefined, 'severity should be omitted');
-    assert.equal(checkDef.confidence, undefined, 'confidence should be omitted');
+    assert.equal(checkDef.severity, 'high', 'severity should default to high');
+    assert.equal(checkDef.confidence, 'medium', 'confidence should default to medium');
   });
 
   it('includes FLAG condition in markdown when provided', async () => {
@@ -603,8 +603,9 @@ describe('new-check utility', () => {
         '',                     // Check ID — empty (attempt 2)
         'aghast-retry-test',    // Check ID — valid (attempt 3)
         'Retry Test Check',     // Check name
-        '',                     // Severity (optional, skip)
-        '',                     // Confidence (optional, skip)
+        '',                     // Check type (default: repository)
+        '',                     // Severity (default: high)
+        '',                     // Confidence (default: medium)
         '',                     // Model (optional, skip)
         '',                     // Repositories (optional, skip)
         'Overview text',        // Check overview
@@ -612,7 +613,6 @@ describe('new-check utility', () => {
         'All good',             // PASS condition
         'Something bad',        // FAIL condition
         '',                     // FLAG condition (optional, skip)
-        '',                     // Check type (default: repository)
       ],
     );
 
@@ -695,9 +695,9 @@ describe('new-check utility', () => {
     assert.equal(checkDef.instructionsFile, undefined);
   });
 
-  // ─── Targeted sarif checks (self-contained prompt, no instructions needed) ─
+  // ─── Targeted sarif checks (requires instructions like other targeted checks) ─
 
-  it('targeted sarif creates correct checkTarget without instructionsFile', async () => {
+  it('targeted sarif creates correct checkTarget with instructionsFile', async () => {
     const result = await runNewCheck(allFlags({
       '--check-type': 'targeted',
       '--discovery': 'sarif',
@@ -709,11 +709,11 @@ describe('new-check utility', () => {
     const checkDef = JSON.parse(await readFile(resolve(checksDir, 'aghast-test', 'aghast-test.json'), 'utf-8'));
     assert.equal(checkDef.checkTarget.type, 'targeted');
     assert.equal(checkDef.checkTarget.discovery, 'sarif');
-    assert.equal(checkDef.instructionsFile, undefined, 'sarif discovery has self-contained prompt');
+    assert.equal(checkDef.instructionsFile, 'aghast-test.md', 'sarif discovery requires instructionsFile');
     assert.equal(checkDef.checkTarget.rules, undefined, 'sarif should not have rules');
   });
 
-  it('targeted sarif does not generate .md file', async () => {
+  it('targeted sarif generates .md file', async () => {
     const result = await runNewCheck(allFlags({
       '--check-type': 'targeted',
       '--discovery': 'sarif',
@@ -724,16 +724,36 @@ describe('new-check utility', () => {
 
     const { readdirSync } = await import('node:fs');
     const files = readdirSync(resolve(checksDir, 'aghast-test'));
-    assert.ok(!files.includes('aghast-test.md'), 'sarif should not generate .md file');
+    assert.ok(files.includes('aghast-test.md'), 'sarif should generate .md file');
     assert.ok(files.includes('aghast-test.json'), 'Should still have .json');
   });
 
-  // ─── Targeted openant checks (self-contained prompt, no instructions needed) ─
+  it('targeted sarif with false-positive-validation skips instructionsFile and .md', async () => {
+    const result = await runNewCheck(allFlags({
+      '--check-type': 'targeted',
+      '--discovery': 'sarif',
+      '--sarif-file': './sast-results.sarif',
+      '--analysis-mode': 'false-positive-validation',
+    }));
 
-  it('targeted openant creates correct checkTarget without instructionsFile', async () => {
+    assert.equal(result.exitCode, 0, `CLI failed: ${result.stderr}`);
+
+    const checkDef = JSON.parse(await readFile(resolve(checksDir, 'aghast-test', 'aghast-test.json'), 'utf-8'));
+    assert.equal(checkDef.checkTarget.analysisMode, 'false-positive-validation');
+    assert.equal(checkDef.instructionsFile, undefined, 'built-in mode does not need instructionsFile');
+
+    const { readdirSync } = await import('node:fs');
+    const files = readdirSync(resolve(checksDir, 'aghast-test'));
+    assert.ok(!files.includes('aghast-test.md'), 'built-in mode should not generate .md file');
+  });
+
+  // ─── Targeted openant checks with built-in analysis mode ─
+
+  it('targeted openant with general-vuln-discovery creates checkTarget without instructionsFile', async () => {
     const result = await runNewCheck(allFlags({
       '--check-type': 'targeted',
       '--discovery': 'openant',
+      '--analysis-mode': 'general-vuln-discovery',
     }));
 
     assert.equal(result.exitCode, 0, `CLI failed: ${result.stderr}`);
@@ -741,22 +761,42 @@ describe('new-check utility', () => {
     const checkDef = JSON.parse(await readFile(resolve(checksDir, 'aghast-test', 'aghast-test.json'), 'utf-8'));
     assert.equal(checkDef.checkTarget.type, 'targeted');
     assert.equal(checkDef.checkTarget.discovery, 'openant');
-    assert.equal(checkDef.instructionsFile, undefined, 'openant discovery has self-contained prompt');
+    assert.equal(checkDef.checkTarget.analysisMode, 'general-vuln-discovery');
+    assert.equal(checkDef.instructionsFile, undefined, 'built-in analysis mode does not need instructionsFile');
     assert.equal(checkDef.checkTarget.rules, undefined, 'openant should not have rules');
   });
 
-  it('targeted openant does not generate .md file', async () => {
+  it('targeted openant with general-vuln-discovery does not generate .md file', async () => {
     const result = await runNewCheck(allFlags({
       '--check-type': 'targeted',
       '--discovery': 'openant',
+      '--analysis-mode': 'general-vuln-discovery',
     }));
 
     assert.equal(result.exitCode, 0, `CLI failed: ${result.stderr}`);
 
     const { readdirSync } = await import('node:fs');
     const files = readdirSync(resolve(checksDir, 'aghast-test'));
-    assert.ok(!files.includes('aghast-test.md'), 'openant should not generate .md file');
+    assert.ok(!files.includes('aghast-test.md'), 'built-in analysis mode should not generate .md file');
     assert.ok(files.includes('aghast-test.json'), 'Should still have .json');
+  });
+
+  it('targeted openant with custom mode generates instructionsFile and .md', async () => {
+    const result = await runNewCheck(allFlags({
+      '--check-type': 'targeted',
+      '--discovery': 'openant',
+      '--analysis-mode': 'custom',
+    }));
+
+    assert.equal(result.exitCode, 0, `CLI failed: ${result.stderr}`);
+
+    const checkDef = JSON.parse(await readFile(resolve(checksDir, 'aghast-test', 'aghast-test.json'), 'utf-8'));
+    assert.equal(checkDef.instructionsFile, 'aghast-test.md', 'custom mode requires instructionsFile');
+    assert.equal(checkDef.checkTarget.analysisMode, undefined, 'custom mode should not set analysisMode');
+
+    const { readdirSync } = await import('node:fs');
+    const files = readdirSync(resolve(checksDir, 'aghast-test'));
+    assert.ok(files.includes('aghast-test.md'), 'custom mode should generate .md file');
   });
 
   it('targeted openant includes maxTargets in checkTarget when provided', async () => {

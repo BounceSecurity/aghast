@@ -76,6 +76,8 @@ export interface CheckTargetDefinition {
   sarifFile?: string;
   maxTargets?: number;
   concurrency?: number;
+  /** Analysis mode: determines the AI's approach to each target. */
+  analysisMode?: 'custom' | 'false-positive-validation' | 'general-vuln-discovery';
   openant?: OpenAntFilterConfig;
 }
 

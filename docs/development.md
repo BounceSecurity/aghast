@@ -37,7 +37,7 @@ npm run lint:fix       # Run ESLint with auto-fix
 Releases are created via the **Release** GitHub Actions workflow (`workflow_dispatch`):
 
 1. Go to **Actions > Release > Run workflow**
-2. Enter the new version (e.g. `1.2.0`) — must be semver, strictly greater than the current version
+2. Enter the new version (e.g. `1.2.0`). Must be semver, strictly greater than the current version
 3. The workflow automatically:
    - Updates `package.json` version and README install commands
    - Commits to main and creates a `v<version>` git tag

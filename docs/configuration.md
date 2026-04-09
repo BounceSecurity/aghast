@@ -152,13 +152,14 @@ Each check folder contains a JSON definition file with the check's metadata.
 |--------------------|-------------------------------|----------|-------------|
 | `id`               | `string`                      | Yes      | Must match the Layer 1 registry ID and folder name |
 | `name`             | `string`                      | Yes      | Human-readable check name |
-| `instructionsFile`  | `string`                     | Yes*     | Markdown file with AI instructions (*not needed for `static` checks or `targeted` checks with `openant`/`sarif` discovery — these have self-contained generic prompts) |
+| `instructionsFile`  | `string`                     | Yes*     | Markdown file with AI instructions (*not needed for `static` checks or `targeted` checks with a built-in `analysisMode`) |
 | `severity`         | `string`                      | No       | `critical`, `high`, `medium`, `low`, or `informational` |
 | `confidence`       | `string`                      | No       | `high`, `medium`, or `low` |
 | `model`            | `string`                      | No       | AI model override for this check (e.g. `claude-sonnet-4-20250514`). Takes precedence over CLI `--model` and runtime config |
 | `checkTarget`      | `object`                      | No       | Target configuration (omit for repository checks) |
 | `checkTarget.type` | `string`                      | Yes**    | `repository`, `targeted`, or `static` (**required if `checkTarget` present) |
 | `checkTarget.discovery` | `string`                 | Yes***   | Discovery method: `semgrep`, `sarif`, or `openant` (***required for `targeted` and `static` types) |
+| `checkTarget.analysisMode` | `string`              | No       | Analysis mode for targeted checks: `custom` (default), `false-positive-validation`, or `general-vuln-discovery`. Built-in modes use their own prompt template and don't require `instructionsFile`. See [How It Works](how-it-works.md) |
 | `checkTarget.rules`| `string` or `string[]`        | Yes****  | Semgrep rule file path(s) relative to check folder (****only for `semgrep` discovery) |
 | `checkTarget.sarifFile` | `string`                 | Yes***** | Path to SARIF file relative to check folder (*****only for `sarif` discovery) |
 | `checkTarget.maxTargets` | `number`               | No       | Limit number of targets/units to analyze |
@@ -215,9 +216,9 @@ What this check looks for and why it matters.
 
 | Status | Meaning |
 |--------|---------|
-| `PASS` | No issues found — the code meets the check requirements |
-| `FAIL` | Issues found — the code does not meet the check requirements |
-| `FLAG` | AI is uncertain — human review is recommended |
+| `PASS` | No issues found. The code meets the check requirements |
+| `FAIL` | Issues found. The code does not meet the check requirements |
+| `FLAG` | AI is uncertain. Human review is recommended |
 | `ERROR` | The check could not be completed (e.g. AI provider error) |
 
 When multiple targets are analyzed, the overall status is the worst: FAIL > FLAG > ERROR > PASS.
@@ -234,7 +235,7 @@ If the config directory doesn't exist, it will be created with an empty registry
 
 ## Runtime Configuration
 
-An optional `runtime-config.json` file in the config directory (or specified via `--runtime-config`) sets defaults for scan options. All fields are optional — if the file is absent, built-in defaults are used.
+An optional `runtime-config.json` file in the config directory (or specified via `--runtime-config`) sets defaults for scan options. All fields are optional. If the file is absent, built-in defaults are used.
 
 ```json
 {
@@ -263,7 +264,7 @@ An optional `runtime-config.json` file in the config directory (or specified via
 | `reporting.outputDirectory`     | `string`   | (target repo) | Directory for result files |
 | `reporting.outputFormat`        | `string`   | `json` | Output format: `json` or `sarif` |
 | `logging.logFile`               | `string`   | (none) | Path to log file. When set, all log output is written to this file |
-| `logging.logType`               | `string`   | `file` | Log file handler type. Pluggable — currently only `file` is supported |
+| `logging.logType`               | `string`   | `file` | Log file handler type. Pluggable; currently only `file` is supported |
 | `logging.level`                 | `string`   | `info` | Console log level: `error`, `warn`, `info`, `debug`, `trace` |
 | `genericPrompt`                 | `string`   | `generic-instructions.md` | Generic prompt template filename |
 | `failOnCheckFailure`            | `boolean`  | `false` | Exit with code 1 if any check FAILs or ERRORs |

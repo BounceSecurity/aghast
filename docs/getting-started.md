@@ -1,6 +1,6 @@
 <p align="center">
   <strong>AGHAST Documentation</strong><br>
-  <a href="README.md">&uarr; Documentation Index</a>&nbsp;&nbsp;&bull;&nbsp;&nbsp;<a href="trying-it-out.md">Trying It Out &rarr;</a>
+  <a href="how-it-works.md">&larr; How It Works</a>&nbsp;&nbsp;&bull;&nbsp;&nbsp;<a href="README.md">&uarr; Documentation Index</a>&nbsp;&nbsp;&bull;&nbsp;&nbsp;<a href="trying-it-out.md">Trying It Out &rarr;</a>
 </p>
 
 ---
@@ -12,14 +12,14 @@ This guide walks you through installing aghast and setting up your environment.
 ## Prerequisites
 
 - **Node.js 20+**
-- **[Semgrep Community Edition](https://semgrep.dev/docs/getting-started/)** (LGPL-2.1) — only required if your checks use `semgrep` discovery
-- **[OpenAnt](https://github.com/knostic/OpenAnt)** + **Python 3.11+** + **Go** (for building) — only required if your checks use `openant` discovery
-- **Anthropic API key** — required for AI-based checks (`repository` and `targeted` types; not needed for `static` checks)
+- **[Semgrep Community Edition](https://semgrep.dev/docs/getting-started/)** (LGPL-2.1) - only required if your checks use `semgrep` discovery
+- **[OpenAnt](https://github.com/knostic/OpenAnt)** + **Python 3.11+** + **Go** (for building) - only required if your checks use `openant` discovery
+- **Anthropic API key** - required for AI-based checks (`repository` and `targeted` types; not needed for `static` checks)
 
 ## 1. Install aghast
 
 ```bash
-npm install -g @bouncesecurity/aghast@0.2.0
+npm install -g @bouncesecurity/aghast@0.1.0
 ```
 
 To uninstall:
@@ -38,11 +38,11 @@ This is required for `repository` and `targeted` checks. You can skip this step 
 
 ## What's next
 
-Head to [Trying It Out](trying-it-out.md) to run your first scan — either using pre-built example checks or by creating your own.
+Head to [Trying It Out](trying-it-out.md) to run your first scan, either using pre-built example checks or by creating your own.
 
 ---
 
 <p align="center">
   <strong>AGHAST Documentation</strong><br>
-  <a href="README.md">&uarr; Documentation Index</a>&nbsp;&nbsp;&bull;&nbsp;&nbsp;<a href="trying-it-out.md">Trying It Out &rarr;</a>
+  <a href="how-it-works.md">&larr; How It Works</a>&nbsp;&nbsp;&bull;&nbsp;&nbsp;<a href="README.md">&uarr; Documentation Index</a>&nbsp;&nbsp;&bull;&nbsp;&nbsp;<a href="trying-it-out.md">Trying It Out &rarr;</a>
 </p>
