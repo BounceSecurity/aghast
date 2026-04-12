@@ -22,6 +22,10 @@ Define your checks, which repositories they relate to, and get accurate and stru
 
 You can read the full background to this tool in our blogpost [here](https://bouncesecurity.com/aghast). For a conceptual walkthrough of how each check type works, see [How It Works](docs/how-it-works.md).
 
+Alternatively, there is a brief introduction video here (opens in YouTube):
+
+[![Watch the demo (opens YouTube)](https://img.youtube.com/vi/-rjCVgzlcH8/maxresdefault.jpg)](https://www.youtube.com/watch?v=-rjCVgzlcH8)
+
 To cut to the chase, AGHAST uses three core mechanisms:
 
 - **Repository-wide AI analysis** — let the LLM analyze the whole repo against your security check instructions
