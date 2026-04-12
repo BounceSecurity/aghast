@@ -99,7 +99,7 @@ jobs:
       - name: Update version references
         run: |
           node .github/scripts/update-version-refs.cjs ${{ inputs.version }}
-          npm install --package-lock-only
+          npm install --package-lock-only --ignore-scripts
 
       - name: Commit version bump
         run: |
