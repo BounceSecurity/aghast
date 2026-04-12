@@ -8,13 +8,11 @@
 > **Warning**
 > AGHAST is in **early alpha**. APIs, CLI flags, configuration formats, and output schemas may change between releases without notice. Use in production CI/CD pipelines at your own risk.
 
-<!-- TODO: pick one of these one-liners -->
-<!-- Option 1: Find the security issues generic scanners miss — define checks specific to your codebase using static rules, AI prompts, or both. -->
-<!-- Option 2: A security scanner for the questions only your team can ask — combines static rules with AI to find code-specific and organization-specific issues. -->
-<!-- Option 3: Custom security checks for your codebase — combine static rules with AI to find what generic scanners can't. -->
-An open source tool that combines static scanning rules with AI prompts to find code-specific and company-specific security issues.
+You know what your key code security concerns are. But how do you check for them in a way that is automatable, repeatable and scalable? If generic SAST is doing this for you, feel free to stop reading now 😀.
 
-Define static rules, security checks as markdown instructions, point AGHAST at a repo, and get structured results (JSON or SARIF).
+For the rest of us, AGHAST is an open-source framework that lets you define and check for these concerns. It blends the advantages of static discovery and AI-powered analysis to efficiently find code-specific and company-specific security issues.
+
+Define your checks, which repositories they relate to, and get accurate and structured results (JSON or SARIF).
 
 <p align="center">
   <img src="/assets/img/aghastbouncecaption.png" alt="AGHAST" width="50%">
@@ -22,7 +20,9 @@ Define static rules, security checks as markdown instructions, point AGHAST at a
 
 ## What AGHAST Does
 
-You can read the full background to this tool in our blogpost [here](https://bouncesecurity.com/aghast). For a conceptual walkthrough of how each check type works, see [How It Works](docs/how-it-works.md). To cut to the chase, AGHAST uses three core mechanisms:
+You can read the full background to this tool in our blogpost [here](https://bouncesecurity.com/aghast). For a conceptual walkthrough of how each check type works, see [How It Works](docs/how-it-works.md).
+
+To cut to the chase, AGHAST uses three core mechanisms:
 
 - **Repository-wide AI analysis** — let the LLM analyze the whole repo against your security check instructions
 - **Targeted checks** — a pluggable discovery method (Semgrep rules, [OpenAnt](https://github.com/knostic/OpenAnt/) code units, or external SARIF findings) identifies specific code locations, then AI analyzes each independently. This is the sweet spot for most use cases
