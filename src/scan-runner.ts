@@ -453,6 +453,11 @@ async function executeTargetedCheck(
 
     logProgress(TAG, `Found ${targets.length} targets to analyze (concurrency: ${effectiveConcurrency})`);
 
+    // Progress summary timer — logs a periodic overview at info level (every 15s)
+    const PROGRESS_INTERVAL_MS = 15000;
+    const progressTimer = createTimer();
+    let inProgressCount = 0;
+
     // 5. Resolve generic prompt: CLI override > analysisMode prompt > discovery default
     const analysisModePrompts: Record<string, string> = {
       'false-positive-validation': 'false-positive-validation.md',
@@ -467,10 +472,20 @@ async function executeTargetedCheck(
     const abortHandle: AbortHandle = { aborted: false };
 
     // 6. Analyze targets concurrently — pipeline is generic, no discovery conditionals
-    const targetResults = await mapWithConcurrency(
+    const logProgressSummary = () => {
+      const pending = targets.length - completedCount - inProgressCount;
+      logProgress(TAG, `AI progress [${targets.length} targets]: ${completedCount} complete, ${inProgressCount} in progress, ${pending} pending (${progressTimer.elapsedStr()})`);
+    };
+    logProgressSummary();
+    const progressInterval = setInterval(logProgressSummary, PROGRESS_INTERVAL_MS);
+
+    let targetResults: { issues: SecurityIssue[]; error: boolean; flagged: boolean; tokenUsage: TokenUsage | undefined }[];
+    try {
+    targetResults = await mapWithConcurrency(
       targets,
       effectiveConcurrency,
       async (target, _idx) => {
+        inProgressCount++;
         try {
           const prompt = basePrompt + (target.promptEnrichment ?? '');
 
@@ -506,12 +521,16 @@ async function executeTargetedCheck(
           logDebug(TAG, `${target.label} Error: ${errorMsg}`);
           return { issues: [] as SecurityIssue[], error: true, flagged: false, tokenUsage: undefined };
         } finally {
+          inProgressCount--;
           completedCount++;
-          logProgress(TAG, `Progress: ${completedCount}/${targets.length} targets analyzed`);
+          logDebug(TAG, `Progress: ${completedCount}/${targets.length} targets analyzed`);
         }
       },
       abortHandle,
     );
+    } finally {
+      clearInterval(progressInterval);
+    }
 
     // 7. Aggregate results
     const allIssues: SecurityIssue[] = [];

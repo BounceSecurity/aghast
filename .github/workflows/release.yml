@@ -61,16 +61,40 @@ jobs:
         run: |
           SHA=$(git rev-parse HEAD)
           echo "Checking CI status for $SHA"
-          RESULT=$(gh run list --commit "$SHA" --workflow CI --json conclusion --jq '.[0].conclusion // empty')
-          if [ -z "$RESULT" ]; then
-            echo "::error::No CI run found for commit $SHA. Ensure CI has run on main before releasing."
-            exit 1
-          fi
-          if [ "$RESULT" != "success" ]; then
-            echo "::error::CI did not pass on commit $SHA (conclusion: $RESULT). Fix CI before releasing."
-            exit 1
-          fi
-          echo "CI passed on $SHA"
+
+          MAX_WAIT=600  # 10 minutes
+          INTERVAL=15
+          ELAPSED=0
+
+          while true; do
+            RUN_JSON=$(gh run list --commit "$SHA" --workflow CI --json conclusion,status --jq '.[0] // empty')
+            if [ -z "$RUN_JSON" ]; then
+              echo "::error::No CI run found for commit $SHA. Ensure CI has run on main before releasing."
+              exit 1
+            fi
+
+            STATUS=$(echo "$RUN_JSON" | jq -r '.status')
+            CONCLUSION=$(echo "$RUN_JSON" | jq -r '.conclusion // empty')
+
+            if [ "$STATUS" = "completed" ]; then
+              if [ "$CONCLUSION" = "success" ]; then
+                echo "CI passed on $SHA"
+                break
+              else
+                echo "::error::CI did not pass on commit $SHA (conclusion: $CONCLUSION). Fix CI before releasing."
+                exit 1
+              fi
+            fi
+
+            # CI is still running — wait
+            if [ "$ELAPSED" -ge "$MAX_WAIT" ]; then
+              echo "::error::Timed out waiting for CI on commit $SHA (status: $STATUS after ${ELAPSED}s)"
+              exit 1
+            fi
+            echo "CI is $STATUS on $SHA — waiting ${INTERVAL}s (${ELAPSED}s/${MAX_WAIT}s elapsed)"
+            sleep "$INTERVAL"
+            ELAPSED=$((ELAPSED + INTERVAL))
+          done
 
       - name: Update version references
         run: node .github/scripts/update-version-refs.cjs ${{ inputs.version }}

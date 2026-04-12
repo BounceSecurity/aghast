@@ -962,8 +962,8 @@ describe('CLI mock mode: concurrency progress output', () => {
     );
     const combined = stdout + stderr;
     assert.ok(
-      combined.includes('targets analyzed'),
-      'Should log progress with "targets analyzed"',
+      combined.includes('targets to analyze'),
+      'Should log target count with "targets to analyze"',
     );
     assert.ok(
       combined.includes('concurrency:'),
