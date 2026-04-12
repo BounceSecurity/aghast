@@ -97,13 +97,15 @@ jobs:
           done
 
       - name: Update version references
-        run: node .github/scripts/update-version-refs.cjs ${{ inputs.version }}
+        run: |
+          node .github/scripts/update-version-refs.cjs ${{ inputs.version }}
+          npm install --package-lock-only
 
       - name: Commit version bump
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add package.json docs/getting-started.md .github/workflows/release.yml
+          git add package.json package-lock.json docs/getting-started.md .github/workflows/release.yml
           git commit -m "chore: release v${{ inputs.version }}"
           git push
 
