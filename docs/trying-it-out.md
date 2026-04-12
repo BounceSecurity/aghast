@@ -51,9 +51,17 @@ The [aghast-bounce-checks-public](https://github.com/BounceSecurity/aghast-bounc
 git clone https://github.com/BounceSecurity/aghast-bounce-checks-public.git
 ```
 
-The repo includes five example checks demonstrating the three check types (`repository`, `targeted`, `static`) with different discovery methods (`semgrep`, `sarif`, `openant`), with test codebases pre-configured in `checks-config.json`. Each example is described in detail below.
+The repo includes five example checks demonstrating the three check types (`repository`, `targeted`, `static`) with different discovery methods and analysis modes, with test codebases pre-configured in `checks-config.json`. Each example is described in detail below.
 
-### Example 1: Business Logic Bypass (`repository` type)
+| # | Example | Check type | Discovery | Analysis mode | Requires |
+|---|---------|------------|-----------|---------------|----------|
+| 1 | [Business Logic Bypass](#example-1-business-logic-bypass-repository-check) | repository | — | — | API key |
+| 2 | [Important Validations before AI Queries](#example-2-important-validations-before-ai-queries-targeted-check-semgrep-discovery) | targeted | Semgrep | custom | API key, Semgrep |
+| 3 | [Missing API Token Decorator](#example-3-missing-api-token-decorator-static-check-semgrep-discovery) | static | Semgrep | — | Semgrep |
+| 4 | [SAST Finding Verification](#example-4-sast-finding-verification-targeted-check-sarif-input-false-positive-validation) | targeted | SARIF input | false-positive validation | API key |
+| 5 | [Various Security Vulnerabilities](#example-5-various-security-vulnerabilities-targeted-check-openant-discovery-general-vulnerability-analysis) | targeted | OpenAnt | general vulnerability discovery | API key, OpenAnt |
+
+### Example 1: Business Logic Bypass (repository check)
 
 #### Check type
 
@@ -95,7 +103,7 @@ FAIL with 4 issues: negative quantity accepted in add-to-cart, client-supplied p
 
 ---
 
-### Example 2: Important Validations before AI Queries (`targeted` + `semgrep` discovery)
+### Example 2: Important Validations before AI Queries (targeted check, Semgrep discovery)
 
 #### Check type
 
@@ -160,7 +168,7 @@ FAIL with 2 issues: Semgrep finds 3 targets (endpoints calling `send_ai_query()`
 
 ---
 
-### Example 3: Missing API Token Decorator (`static` + `semgrep` discovery)
+### Example 3: Missing API Token Decorator (static check, Semgrep discovery)
 
 #### Check type
 
@@ -231,7 +239,7 @@ FAIL with 4 issues: four endpoints across three route files are missing the `@re
 
 ---
 
-### Example 4: SAST Finding Verification (`targeted` + `sarif` discovery)
+### Example 4: SAST Finding Verification (targeted check, SARIF input, false-positive validation)
 
 #### Check type
 
@@ -253,12 +261,13 @@ Takes SARIF output from a generic SAST tool and verifies whether each reported f
   "checkTarget": {
     "type": "targeted",
     "discovery": "sarif",
-    "sarifFile": "./sast-results.sarif"
+    "sarifFile": "./sast-results.sarif",
+    "analysisMode": "false-positive-validation"
   }
 }
 ```
 
-The `instructionsFile` provides custom instructions for the AI, in this case context about the app's framework protections. This check uses the default `custom` analysis mode, so an instructions file is required. (Checks using a built-in analysis mode like `false-positive-validation` or `general-vuln-discovery` don't need one.) The `sarifFile` field points to the SARIF file containing findings to analyze, resolved relative to the target repo.
+The `analysisMode` of `false-positive-validation` uses a built-in prompt that evaluates each finding as a true or false positive — no custom analysis instructions needed. The optional `instructionsFile` provides supplementary context about the target codebase (in this case, that the app uses Flask with Jinja2 templates and a link to Flask's security docs). The `sarifFile` field points to the SARIF file containing findings to analyze, resolved relative to the target repo.
 
 #### Test codebase
 
@@ -282,7 +291,7 @@ FAIL with ~3 issues: the AI should confirm the true positive findings (unescaped
 
 ---
 
-### Example 5: Various Security Vulnerabilities (`targeted` + `openant` discovery)
+### Example 5: Various Security Vulnerabilities (targeted check, OpenAnt discovery, general vulnerability analysis)
 
 #### Check type
 
