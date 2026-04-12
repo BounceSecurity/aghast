@@ -146,7 +146,7 @@ export class ClaudeCodeProvider implements AIProvider {
       const silentSeconds = Math.round((Date.now() - lastActivityTime) / 1000);
       if (silentSeconds >= HEARTBEAT_INTERVAL_MS / 1000) {
         const status = currentToolName ? `running ${currentToolName}` : 'waiting';
-        logProgress(TAG, `${prefix}Still ${status}... (${timer.elapsedStr()})`);
+        logDebug(TAG, `${prefix}Still ${status}... (${timer.elapsedStr()})`);
       }
     }, HEARTBEAT_INTERVAL_MS);
 
@@ -157,14 +157,14 @@ export class ClaudeCodeProvider implements AIProvider {
       if (message.type === 'tool_progress') {
         const progress = message as { tool_name: string; elapsed_time_seconds: number };
         currentToolName = progress.tool_name;
-        logProgress(TAG, `${prefix}Running ${progress.tool_name}... (${Math.round(progress.elapsed_time_seconds)}s)`);
+        logDebug(TAG, `${prefix}Running ${progress.tool_name}... (${Math.round(progress.elapsed_time_seconds)}s)`);
       }
 
       if (message.type === 'assistant') {
         turnCount++;
         currentToolName = undefined;
-        // Simple activity indicator at info level
-        logProgress(TAG, `${prefix}Turn ${turnCount} (${timer.elapsedStr()})`);
+        // Activity indicator at debug level (scan-runner provides periodic summary at info)
+        logDebug(TAG, `${prefix}Turn ${turnCount} (${timer.elapsedStr()})`);
 
         const content = (message as any).message?.content;
         if (Array.isArray(content)) {
