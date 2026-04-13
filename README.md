@@ -24,7 +24,7 @@ You can read the full background to this tool in our blogpost [here](https://bou
 
 Alternatively, there is a brief introduction video here (opens in YouTube):
 
-[![Watch the demo (opens YouTube)](https://img.youtube.com/vi/-rjCVgzlcH8/maxresdefault.jpg)](https://www.youtube.com/watch?v=-rjCVgzlcH8)
+[![Watch the demo (opens YouTube)](https://img.youtube.com/vi/B76A33l1LyI/maxresdefault.jpg)](https://www.youtube.com/watch?v=B76A33l1LyI)
 
 To cut to the chase, AGHAST uses three core mechanisms:
 

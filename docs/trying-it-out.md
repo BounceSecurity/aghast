@@ -63,6 +63,8 @@ The repo includes five example checks demonstrating the three check types (`repo
 
 ### Example 1: Business Logic Bypass (repository check)
 
+[Click for a video walkthrough of running this example.](https://youtu.be/k-CqAsOicA4)
+
 #### Check type
 
 `repository` - analyzes the whole codebase with AI. No Semgrep needed.
@@ -104,6 +106,8 @@ FAIL with 4 issues: negative quantity accepted in add-to-cart, client-supplied p
 ---
 
 ### Example 2: Important Validations before AI Queries (targeted check, Semgrep discovery)
+
+[Click for a video walkthrough of running this example.](https://youtu.be/rjYegEg6dx0)
 
 #### Check type
 
