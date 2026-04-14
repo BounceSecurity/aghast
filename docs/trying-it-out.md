@@ -174,6 +174,8 @@ FAIL with 2 issues: Semgrep finds 3 targets (endpoints calling `send_ai_query()`
 
 ### Example 3: Missing API Token Decorator (static check, Semgrep discovery)
 
+[Click for a video walkthrough of running this example.](https://youtu.be/2P8yAWRJSLk)
+
 #### Check type
 
 `static` with `semgrep` discovery. Semgrep findings are mapped directly to issues with no AI involvement.
