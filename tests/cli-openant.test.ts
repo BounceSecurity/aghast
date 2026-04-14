@@ -7,6 +7,7 @@ import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { execFileSync } from 'node:child_process';
 import {
   fixtureRepo,
   failFixtureRepo,
@@ -20,6 +21,16 @@ const openantDataset = resolve(testDir, 'fixtures', 'openant', 'dataset_enhanced
 const openantBaseDataset = resolve(testDir, 'fixtures', 'openant', 'dataset.json');
 
 const { runCLI, cleanupOutput, readResults } = createScopedHelpers('openant');
+
+function isOpenAntInstalled(): boolean {
+  const binary = process.platform === 'win32' ? 'openant.exe' : 'openant';
+  try {
+    execFileSync(binary, ['--help'], { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 describe('CLI: openant discovery type', () => {
   before(async () => {
@@ -73,7 +84,7 @@ describe('CLI: openant discovery type', () => {
     assert.equal(issues[0].checkName, 'OpenAnt Security Test');
   });
 
-  it('should exit with error when openant binary not found and no mock set', async () => {
+  it('should exit with error when openant binary not found and no mock set', { skip: isOpenAntInstalled() ? 'openant is installed locally' : undefined }, async () => {
     const result = await runCLI(
       { AGHAST_MOCK_AI: 'true' },
       [
