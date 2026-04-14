@@ -161,7 +161,7 @@ Each check folder contains a JSON definition file with the check's metadata.
 | `checkTarget.discovery` | `string`                 | Yes***   | Discovery method: `semgrep`, `sarif`, or `openant` (***required for `targeted` and `static` types) |
 | `checkTarget.analysisMode` | `string`              | No       | Analysis mode for targeted checks: `custom` (default), `false-positive-validation`, or `general-vuln-discovery`. Built-in modes use their own prompt template and don't require `instructionsFile`. See [How It Works](how-it-works.md) |
 | `checkTarget.rules`| `string` or `string[]`        | Yes****  | Semgrep rule file path(s) relative to check folder (****only for `semgrep` discovery) |
-| `checkTarget.sarifFile` | `string`                 | Yes***** | Path to SARIF file relative to check folder (*****only for `sarif` discovery) |
+| `checkTarget.sarifFile` | `string`                 | Yes***** | Path to SARIF file relative to target repository (*****only for `sarif` discovery) |
 | `checkTarget.maxTargets` | `number`               | No       | Limit number of targets/units to analyze |
 | `checkTarget.concurrency` | `number`              | No       | Max parallel AI analyses for targeted checks (default: 5) |
 | `checkTarget.openant` | `object`                  | No       | OpenAnt unit filter config (only for `openant` discovery). See below |

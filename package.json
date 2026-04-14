@@ -12,7 +12,8 @@
   },
   "files": [
     "dist/",
-    "config/"
+    "config/",
+    "assets/"
   ],
   "scripts": {
     "prepare": "tsc",
@@ -23,8 +24,8 @@
     "test:openant": "node --import tsx --test tests/openant-integration.itest.ts",
     "lint": "eslint src/ tests/",
     "lint:fix": "eslint --fix src/ tests/",
-    "scan": "tsx src/index.ts",
-    "new-check": "tsx src/new-check.ts"
+    "scan": "tsx src/cli.ts scan",
+    "new-check": "tsx src/cli.ts new-check"
   },
   "keywords": [],
   "author": "",

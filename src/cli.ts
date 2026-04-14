@@ -12,6 +12,9 @@
 
 import 'dotenv/config';
 import { createRequire } from 'node:module';
+import { readFileSync } from 'node:fs';
+import { resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { ERROR_CODES, formatError, formatFatalError } from './error-codes.js';
 
 // Signal to subcommand modules that they're being imported, not run directly
@@ -39,6 +42,17 @@ function printVersion(): void {
   console.log(getVersion());
 }
 
+function printLogo(): void {
+  const __dirname = dirname(fileURLToPath(import.meta.url));
+  const logoPath = resolve(__dirname, '..', 'assets', 'txt', 'logo.txt');
+  try {
+    const logo = readFileSync(logoPath, 'utf-8');
+    console.log(logo);
+  } catch {
+    // Logo file not found — continue without it
+  }
+}
+
 async function main(): Promise<void> {
   // Graceful shutdown on POSIX signals
   process.on('SIGINT', () => {
@@ -47,6 +61,8 @@ async function main(): Promise<void> {
   process.on('SIGTERM', () => {
     process.exit(143);
   });
+
+  printLogo();
 
   const args = process.argv.slice(2);
   const command = args[0];

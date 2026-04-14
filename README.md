@@ -1,12 +1,12 @@
-# AI Guided Hybrid Application Static Testing (AGHAST) - ALPHA VERSION
+# AI Guided Hybrid Application Static Testing (AGHAST)
 
-![Status: Alpha](https://img.shields.io/badge/Status-Alpha-orange)
+![Status: Beta](https://img.shields.io/badge/Status-Beta-yellow)
 [![CI](https://github.com/BounceSecurity/aghast/actions/workflows/ci.yml/badge.svg)](https://github.com/BounceSecurity/aghast/actions/workflows/ci.yml)
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
 [![By Bounce Security](https://img.shields.io/badge/By-Bounce_Security-f79421)](https://bouncesecurity.com/)
 
-> **Warning**
-> AGHAST is in **early alpha**. APIs, CLI flags, configuration formats, and output schemas may change between releases without notice. Use in production CI/CD pipelines at your own risk.
+> **Note**
+> AGHAST is in **beta** and may have unexpected bugs. We follow [semantic versioning](https://semver.org/) — breaking changes to APIs, CLI flags, configuration formats, and output schemas will only occur in minor version bumps (0.x.0) until we reach 1.0.
 
 You know what your key code security concerns are. But how do you check for them in a way that is automatable, repeatable and scalable? If generic SAST is doing this for you, feel free to stop reading now 😀.
 
@@ -20,7 +20,7 @@ Define your checks, which repositories they relate to, and get accurate and stru
 
 ## What AGHAST Does
 
-You can read the full background to this tool in our blogpost [here](https://bouncesecurity.com/aghast). For a conceptual walkthrough of how each check type works, see [How It Works](docs/how-it-works.md).
+You can read more about this tool on our product page [here](https://bouncesecurity.com/aghast). For a conceptual walkthrough of how each check type works, see [How It Works](docs/how-it-works.md).
 
 Alternatively, there is a brief introduction video here (opens in YouTube):
 

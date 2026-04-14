@@ -428,6 +428,10 @@ export async function runScan(args: string[]): Promise<void> {
     }
 
     const details = await loadCheckDetails(check, '');
+    // Fall back to JSON definition name if markdown has no ### heading
+    if (details.name === 'Unknown Check') {
+      details.name = check.name;
+    }
     checksWithDetails.push({ check, details });
   }
 

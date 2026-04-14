@@ -249,6 +249,8 @@ FAIL with 4 issues: four endpoints across three route files are missing the `@re
 
 ### Example 4: SAST Finding Verification (targeted check, SARIF input, false-positive validation)
 
+[Click for a video walkthrough of running this example.](https://youtu.be/I3b2Cn87ugg)
+
 #### Check type
 
 `targeted` with `sarif` discovery. Reads findings from a SARIF file specified in the check definition and has the AI validate each one as a true or false positive.
