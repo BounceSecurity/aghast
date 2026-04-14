@@ -11,6 +11,8 @@ Once you've [installed aghast](getting-started.md), you can either [create your 
 
 ## Option A: Create your own check
 
+[Click for a video walkthrough of using the new-check CLI option.](https://youtu.be/5MNadDxwtKk)
+
 Use `aghast new-check` to scaffold a check tailored to your own codebase:
 
 ```bash
