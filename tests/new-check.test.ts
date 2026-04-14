@@ -132,7 +132,6 @@ function allFlags(overrides: Record<string, string> = {}): string[] {
     '--fail-condition': 'Tests fail',
     '--check-type': 'repository',
     '--config-dir': configDir,
-    '--checks-dir': checksDir,
   };
 
   const merged = { ...defaults, ...overrides };
@@ -566,7 +565,7 @@ describe('new-check utility', () => {
   it('retries up to 3 times for required fields before exiting', async () => {
     // Supply no flags — the first prompt is Check ID, send 3 empty lines
     const result = await runNewCheckInteractive(
-      ['--config-dir', configDir, '--checks-dir', checksDir],
+      ['--config-dir', configDir],
       ['', '', ''],
     );
 
@@ -579,7 +578,7 @@ describe('new-check utility', () => {
 
   it('shows remaining attempts on each empty input for required fields', async () => {
     const result = await runNewCheckInteractive(
-      ['--config-dir', configDir, '--checks-dir', checksDir],
+      ['--config-dir', configDir],
       ['', '', ''],
     );
 
@@ -597,13 +596,13 @@ describe('new-check utility', () => {
     // First prompt: Check ID — give 2 empty then valid value
     // Then answer all remaining required prompts
     const result = await runNewCheckInteractive(
-      ['--config-dir', configDir, '--checks-dir', checksDir],
+      ['--config-dir', configDir],
       [
         '',                     // Check ID — empty (attempt 1)
         '',                     // Check ID — empty (attempt 2)
         'aghast-retry-test',    // Check ID — valid (attempt 3)
         'Retry Test Check',     // Check name
-        '',                     // Check type (default: repository)
+        'repository',            // Check type (explicit repository)
         '',                     // Severity (default: high)
         '',                     // Confidence (default: medium)
         '',                     // Model (optional, skip)

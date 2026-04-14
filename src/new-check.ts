@@ -17,6 +17,7 @@ import { stdin, stdout } from 'node:process';
 import { createRequire } from 'node:module';
 import { ERROR_CODES, formatError, formatFatalError } from './error-codes.js';
 import { getCheckType, getValidCheckTypes } from './check-types.js';
+import { DEFAULT_AI_MODEL } from './types.js';
 
 const ID_PREFIX = 'aghast-';
 
@@ -184,7 +185,7 @@ async function promptForMissing(flags: ParsedFlags): Promise<Required<Omit<Parse
   };
 
   // Phase 2: Check type, discovery, and analysis mode (determines what other questions to ask)
-  result.checkType = await askChoice('Check type', getValidCheckTypes(), 'repository', flags.checkType);
+  result.checkType = await askChoice('Check type', getValidCheckTypes(), 'targeted', flags.checkType);
 
   if (result.checkType === 'targeted' || result.checkType === 'static') {
     const discoveryChoices = result.checkType === 'targeted' ? ['semgrep', 'openant', 'sarif'] : ['semgrep'];
@@ -217,7 +218,7 @@ async function promptForMissing(flags: ParsedFlags): Promise<Required<Omit<Parse
   // Phase 3: Severity, confidence, model, repositories
   result.severity = await askChoice('Severity', ['critical', 'high', 'medium', 'low', 'informational'], 'high', flags.severity);
   result.confidence = await askChoice('Confidence', ['high', 'medium', 'low'], 'medium', flags.confidence);
-  result.model = flags.model !== undefined ? flags.model : await askOptional('AI model override (e.g. claude-sonnet-4-6)', undefined);
+  result.model = flags.model !== undefined ? flags.model : await askOptional(`AI model override (default: ${DEFAULT_AI_MODEL})`, undefined);
   result.repositories = flags.repositories !== undefined ? flags.repositories : await askOptional('Repositories (comma-separated URLs, or empty for all)', undefined);
 
   // Phase 4: Instructions (only for check types/modes that need custom instructions)
@@ -488,7 +489,7 @@ Options:
   --pass-condition <text>    Condition for a PASS result
   --fail-condition <text>    Condition for a FAIL result
   --flag-condition <text>    Condition for a FLAG result (optional)
-  --check-type <type>        Check type (default: repository). See 'Check types' below
+  --check-type <type>        Check type (default: targeted). See 'Check types' below
   --discovery <name>         Discovery mechanism for targeted/static checks. See below
   --semgrep-rules <paths>    Comma-separated Semgrep rule file paths (for semgrep discovery)
   --sarif-file <path>        SARIF file path in check definition, relative to repo (for sarif discovery)
