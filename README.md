@@ -20,11 +20,11 @@ Define your checks, which repositories they relate to, and get accurate and stru
 
 ## What AGHAST Does
 
-You can read more about this tool on our product page [here](https://bouncesecurity.com/aghast). For a conceptual walkthrough of how each check type works, see [How It Works](docs/how-it-works.md).
+* You can read more about this tool on our [product page](https://bouncesecurity.com/aghast).
+* There is a brief introduction video [here](https://www.youtube.com/watch?v=B76A33l1LyI).
+* For a conceptual walkthrough of how each check type works, see [How It Works](docs/how-it-works.md).
+* Alternatively, there are examples of several check types in [Trying It Out](docs/trying-it-out.md#option-b-use-the-example-checks) with video explanations of [in this YouTube playlist](https://www.youtube.com/playlist?list=PLjjq7fuK4pqubFNVw3miBpdd6TXif4WHW).
 
-Alternatively, there is a brief introduction video here (opens in YouTube):
-
-[![Watch the demo (opens YouTube)](https://img.youtube.com/vi/B76A33l1LyI/maxresdefault.jpg)](https://www.youtube.com/watch?v=B76A33l1LyI)
 
 To cut to the chase, AGHAST uses three core mechanisms:
 
