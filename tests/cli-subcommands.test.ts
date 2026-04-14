@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { unlink, access } from 'node:fs/promises';
+import { unlink, access, readFile } from 'node:fs/promises';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const cliEntry = resolve(__dirname, '..', 'src', 'cli.ts');
@@ -115,13 +115,21 @@ describe('CLI subcommands: help and version', () => {
   it('--version prints version and exits 0', async () => {
     const { exitCode, stdout } = await runCLI(['--version']);
     assert.equal(exitCode, 0);
-    assert.match(stdout.trim(), /^\d+\.\d+\.\d+$/, 'Should print semver version');
+    assert.match(stdout.trim(), /\d+\.\d+\.\d+$/, 'Should print semver version');
   });
 
   it('-V prints version and exits 0', async () => {
     const { exitCode, stdout } = await runCLI(['-V']);
     assert.equal(exitCode, 0);
-    assert.match(stdout.trim(), /^\d+\.\d+\.\d+$/, 'Should print semver version');
+    assert.match(stdout.trim(), /\d+\.\d+\.\d+$/, 'Should print semver version');
+  });
+
+  it('prints logo from assets/txt/logo.txt on startup', async () => {
+    const logoPath = resolve(__dirname, '..', 'assets', 'txt', 'logo.txt');
+    const logoContent = await readFile(logoPath, 'utf-8');
+    const { exitCode, stdout } = await runCLI(['--version']);
+    assert.equal(exitCode, 0);
+    assert.ok(stdout.includes(logoContent.trim()), 'Should print logo matching assets/txt/logo.txt');
   });
 });
 
