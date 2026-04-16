@@ -21,6 +21,15 @@ for (const file of ['docs/getting-started.md']) {
   fs.writeFileSync(file, content);
 }
 
+// Update package-lock.json version to match
+const lockPath = 'package-lock.json';
+const lock = JSON.parse(fs.readFileSync(lockPath, 'utf-8'));
+lock.version = version;
+if (lock.packages && lock.packages['']) {
+  lock.packages[''].version = version;
+}
+fs.writeFileSync(lockPath, JSON.stringify(lock, null, 2) + '\n');
+
 // Update release workflow description with next possible versions
 const [major, minor, patch] = version.split('.').map(Number);
 const nextPatch = `${major}.${minor}.${patch + 1}`;

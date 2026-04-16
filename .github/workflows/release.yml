@@ -102,7 +102,6 @@ jobs:
           INPUT_VERSION: ${{ inputs.version }}
         run: |
           node .github/scripts/update-version-refs.cjs "$INPUT_VERSION"
-          npm install --package-lock-only --ignore-scripts
 
       - name: Commit version bump
         env:
