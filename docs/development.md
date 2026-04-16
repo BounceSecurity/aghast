@@ -26,11 +26,14 @@ npm run scan -- <repo-path> [options]
 npm run new-check -- [options]
 npm run build
 npm test
+npm run test:coverage  # Run the unit test suite with Node.js coverage enabled
 npm run test:ci        # Run tests with spec and JUnit reporters (for CI)
 npm run test:semgrep   # Run real Semgrep integration tests (requires Semgrep installed)
 npm run lint
 npm run lint:fix       # Run ESLint with auto-fix
 ```
+
+`npm run test:coverage` uses Node.js built-in test coverage support (`--experimental-test-coverage`) so contributors can measure coverage without adding a separate coverage toolchain.
 
 ## Releasing
 
@@ -44,6 +47,8 @@ Releases are created via the **Release** GitHub Actions workflow (`workflow_disp
    - Builds and packs a tarball
    - Publishes to npmjs registry
    - Creates a GitHub Release with the tarball attached
+
+If a release fixes a disclosed security vulnerability, update the generated GitHub Release notes to explicitly call out the fix. Include the CVE ID when one has been assigned.
 
 ---
 
