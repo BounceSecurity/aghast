@@ -148,16 +148,23 @@ export function sanitizeUrl(url: string): string {
  */
 export function normalizeUrl(url: string): string {
   let normalized = url;
+  let prev: string;
 
-  // Remove trailing .git suffix
-  if (normalized.endsWith('.git')) {
-    normalized = normalized.slice(0, -4);
-  }
+  // Loop until stable: handles cases like ".git/" where stripping
+  // slashes reveals a new .git suffix (or vice versa).
+  do {
+    prev = normalized;
 
-  // Remove trailing slashes
-  while (normalized.endsWith('/')) {
-    normalized = normalized.slice(0, -1);
-  }
+    // Remove trailing .git suffix
+    if (normalized.endsWith('.git')) {
+      normalized = normalized.slice(0, -4);
+    }
+
+    // Remove trailing slashes
+    while (normalized.endsWith('/')) {
+      normalized = normalized.slice(0, -1);
+    }
+  } while (normalized !== prev);
 
   return normalized;
 }
@@ -207,8 +214,10 @@ export function parseGitUrl(url: string): { org: string; repo: string } | undefi
  * 3. Convert to lowercase
  */
 export function normalizeRepoPath(repoPathOrUrl: string): string {
-  let normalized = normalizeUrl(repoPathOrUrl);
-  normalized = normalized.replace(/\\/g, '/');
+  // Replace backslashes before normalizeUrl so trailing-slash stripping
+  // catches forward slashes introduced by this replacement.
+  let normalized = repoPathOrUrl.replace(/\\/g, '/');
+  normalized = normalizeUrl(normalized);
   normalized = normalized.toLowerCase();
   return normalized;
 }
