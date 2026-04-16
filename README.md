@@ -102,7 +102,7 @@ Results are structured JSON (or SARIF) with per-check status and detailed issues
 
 ## Contributing
 
-We welcome bug reports and feature requests via [GitHub Issues](https://github.com/BounceSecurity/aghast/issues). We are not currently accepting pull requests.
+Use [GitHub Discussions](https://github.com/BounceSecurity/aghast/discussions) for questions and ideas, and [GitHub Issues](https://github.com/BounceSecurity/aghast/issues) for bug reports and feature requests. We are not currently accepting pull requests. See [CONTRIBUTING.md](CONTRIBUTING.md) for the current contribution policy.
 
 ## License
 
