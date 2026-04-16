@@ -130,6 +130,11 @@ jobs:
       - name: Publish to npmjs
         run: npm publish --access public --provenance
 
+      - uses: sigstore/cosign-installer@v3
+
+      - name: Sign release artifact
+        run: cosign sign-blob --yes --bundle bouncesecurity-aghast-${{ inputs.version }}.tgz.bundle bouncesecurity-aghast-${{ inputs.version }}.tgz
+
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -137,4 +142,5 @@ jobs:
           gh release create "v${{ inputs.version }}" \
             --title "v${{ inputs.version }}" \
             --generate-notes \
-            bouncesecurity-aghast-${{ inputs.version }}.tgz
+            bouncesecurity-aghast-${{ inputs.version }}.tgz \
+            bouncesecurity-aghast-${{ inputs.version }}.tgz.bundle
