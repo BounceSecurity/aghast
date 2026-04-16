@@ -3,6 +3,7 @@
 ![Status: Beta](https://img.shields.io/badge/Status-Beta-yellow)
 [![CI](https://github.com/BounceSecurity/aghast/actions/workflows/ci.yml/badge.svg)](https://github.com/BounceSecurity/aghast/actions/workflows/ci.yml)
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/BounceSecurity/aghast/badge)](https://scorecard.dev/viewer/?uri=github.com/BounceSecurity/aghast)
 [![By Bounce Security](https://img.shields.io/badge/By-Bounce_Security-f79421)](https://bouncesecurity.com/)
 
 > **Note**
