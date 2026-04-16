@@ -18,14 +18,14 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           token: ${{ secrets.RELEASE_PAT }}
 
       - name: Validate version input
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
         run: |
-          INPUT_VERSION="${{ inputs.version }}"
-
           # Must match x.y.z format
           if ! echo "$INPUT_VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
             echo "::error::Invalid version format: '$INPUT_VERSION'. Must be x.y.z (e.g. 1.2.0)"
@@ -97,24 +97,30 @@ jobs:
           done
 
       - name: Update version references
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
         run: |
-          node .github/scripts/update-version-refs.cjs ${{ inputs.version }}
+          node .github/scripts/update-version-refs.cjs "$INPUT_VERSION"
           npm install --package-lock-only --ignore-scripts
 
       - name: Commit version bump
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add package.json package-lock.json docs/getting-started.md .github/workflows/release.yml
-          git commit -m "chore: release v${{ inputs.version }}"
+          git commit -m "chore: release v$INPUT_VERSION"
           git push
 
       - name: Create git tag
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
         run: |
-          git tag "v${{ inputs.version }}"
-          git push origin "v${{ inputs.version }}"
+          git tag "v$INPUT_VERSION"
+          git push origin "v$INPUT_VERSION"
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
         with:
           node-version: '24'
           cache: 'npm'
@@ -130,17 +136,20 @@ jobs:
       - name: Publish to npmjs
         run: npm publish --access public --provenance
 
-      - uses: sigstore/cosign-installer@v3
+      - uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3
 
       - name: Sign release artifact
-        run: cosign sign-blob --yes --bundle bouncesecurity-aghast-${{ inputs.version }}.tgz.bundle bouncesecurity-aghast-${{ inputs.version }}.tgz
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: cosign sign-blob --yes --bundle "bouncesecurity-aghast-${INPUT_VERSION}.tgz.bundle" "bouncesecurity-aghast-${INPUT_VERSION}.tgz"
 
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INPUT_VERSION: ${{ inputs.version }}
         run: |
-          gh release create "v${{ inputs.version }}" \
-            --title "v${{ inputs.version }}" \
+          gh release create "v$INPUT_VERSION" \
+            --title "v$INPUT_VERSION" \
             --generate-notes \
-            bouncesecurity-aghast-${{ inputs.version }}.tgz \
-            bouncesecurity-aghast-${{ inputs.version }}.tgz.bundle
+            "bouncesecurity-aghast-${INPUT_VERSION}.tgz" \
+            "bouncesecurity-aghast-${INPUT_VERSION}.tgz.bundle"
