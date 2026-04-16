@@ -304,7 +304,7 @@ jobs:
       - name: Build and pack
         working-directory: aghast-install
         run: |
-          npm install
+          npm ci
           npm run build
           npm pack
 
