@@ -141,7 +141,7 @@ jobs:
       - name: Sign release artifact
         env:
           INPUT_VERSION: ${{ inputs.version }}
-        run: cosign sign-blob --yes --bundle "bouncesecurity-aghast-${INPUT_VERSION}.tgz.bundle" "bouncesecurity-aghast-${INPUT_VERSION}.tgz"
+        run: cosign sign-blob --yes --bundle "bouncesecurity-aghast-${INPUT_VERSION}.tgz.sigstore" "bouncesecurity-aghast-${INPUT_VERSION}.tgz"
 
       - name: Create GitHub Release
         env:
@@ -152,4 +152,4 @@ jobs:
             --title "v$INPUT_VERSION" \
             --generate-notes \
             "bouncesecurity-aghast-${INPUT_VERSION}.tgz" \
-            "bouncesecurity-aghast-${INPUT_VERSION}.tgz.bundle"
+            "bouncesecurity-aghast-${INPUT_VERSION}.tgz.sigstore"
