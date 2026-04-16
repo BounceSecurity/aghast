@@ -19,7 +19,52 @@ permissions:
   contents: read
 
 jobs:
+  # On push-to-main after a merged PR, skip CI if the PR's checks already passed.
+  # This is safe because branch protection requires PRs to be up-to-date with main
+  # before merging, so the tested code is identical to what lands on main.
+  check-ci-skip:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    outputs:
+      skip: ${{ steps.check.outputs.skip }}
+    permissions:
+      contents: read
+      checks: read
+    steps:
+      - name: Check if merged PR already passed CI
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          COMMIT_SHA: ${{ github.sha }}
+        run: |
+          # Find the merged PR that produced this commit
+          PR_NUM=$(gh pr list --state merged --json number,mergeCommit \
+            --jq ".[] | select(.mergeCommit.oid == \"$COMMIT_SHA\") | .number")
+
+          if [ -z "$PR_NUM" ]; then
+            echo "No merged PR found for $COMMIT_SHA (direct push?) — running CI"
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "Found merged PR #$PR_NUM for commit $COMMIT_SHA"
+
+          # Check if all CI checks passed on the PR (exclude this workflow's own checks)
+          FAILED=$(gh pr checks "$PR_NUM" --json name,state \
+            --jq '[.[] | select(.state != "SUCCESS" and .state != "SKIPPED")] | length')
+
+          if [ "$FAILED" -eq 0 ]; then
+            echo "All checks passed on PR #$PR_NUM — skipping redundant CI"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "$FAILED check(s) did not pass on PR #$PR_NUM — running CI"
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
   lint:
+    needs: [check-ci-skip]
+    if: always() && (needs.check-ci-skip.result == 'skipped' || needs.check-ci-skip.outputs.skip != 'true')
     runs-on: ubuntu-latest
 
     steps:
@@ -35,6 +80,8 @@ jobs:
       - run: npm run lint
 
   test:
+    needs: [check-ci-skip]
+    if: always() && (needs.check-ci-skip.result == 'skipped' || needs.check-ci-skip.outputs.skip != 'true')
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -97,13 +144,18 @@ jobs:
 
   test-gate:
     runs-on: ubuntu-latest
-    needs: test
+    needs: [check-ci-skip, test]
     if: always()
     steps:
       - name: Check test matrix result
         env:
           TEST_RESULT: ${{ needs.test.result }}
+          CI_SKIP: ${{ needs.check-ci-skip.outputs.skip }}
         run: |
+          if [ "$CI_SKIP" = "true" ]; then
+            echo "CI skipped — PR checks already passed"
+            exit 0
+          fi
           if [ "$TEST_RESULT" != "success" ]; then
             echo "Test matrix failed: $TEST_RESULT"
             exit 1
@@ -111,13 +163,18 @@ jobs:
 
   build-and-install-gate:
     runs-on: ubuntu-latest
-    needs: build-and-install
+    needs: [check-ci-skip, build-and-install]
     if: always()
     steps:
       - name: Check build-and-install matrix result
         env:
           BUILD_RESULT: ${{ needs.build-and-install.result }}
+          CI_SKIP: ${{ needs.check-ci-skip.outputs.skip }}
         run: |
+          if [ "$CI_SKIP" = "true" ]; then
+            echo "CI skipped — PR checks already passed"
+            exit 0
+          fi
           if [ "$BUILD_RESULT" != "success" ]; then
             echo "Build-and-install matrix failed: $BUILD_RESULT"
             exit 1
@@ -128,8 +185,8 @@ jobs:
       contents: read
       checks: write
     runs-on: ubuntu-latest
-    needs: test
-    if: always()
+    needs: [check-ci-skip, test]
+    if: always() && (needs.check-ci-skip.result == 'skipped' || needs.check-ci-skip.outputs.skip != 'true')
 
     steps:
       - name: Download all test results
@@ -145,6 +202,8 @@ jobs:
           include_passed: true
 
   semgrep-integration:
+    needs: [check-ci-skip]
+    if: always() && (needs.check-ci-skip.result == 'skipped' || needs.check-ci-skip.outputs.skip != 'true')
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -177,6 +236,8 @@ jobs:
         run: npm run test:semgrep
 
   openant-integration:
+    needs: [check-ci-skip]
+    if: always() && (needs.check-ci-skip.result == 'skipped' || needs.check-ci-skip.outputs.skip != 'true')
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -222,6 +283,8 @@ jobs:
         run: npm run test:openant
 
   build-and-install:
+    needs: [check-ci-skip]
+    if: always() && (needs.check-ci-skip.result == 'skipped' || needs.check-ci-skip.outputs.skip != 'true')
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
