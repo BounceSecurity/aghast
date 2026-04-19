@@ -25,6 +25,7 @@ jobs:
   check-ci-skip:
     runs-on: ubuntu-latest
     if: github.event_name == 'push'
+    continue-on-error: true
     outputs:
       skip: ${{ steps.check.outputs.skip }}
     permissions:

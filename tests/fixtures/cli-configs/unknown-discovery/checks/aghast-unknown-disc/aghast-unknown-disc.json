@@ -1,0 +1,10 @@
+{
+  "id": "aghast-unknown-disc",
+  "name": "Check with unknown discovery type",
+  "severity": "high",
+  "checkTarget": {
+    "type": "targeted",
+    "discovery": "future-discovery-type",
+    "analysisMode": "false-positive-validation"
+  }
+}

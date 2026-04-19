@@ -16,6 +16,7 @@ import type {
   CheckDefinition,
 } from './types.js';
 import { getCheckType, getValidCheckTypes } from './check-types.js';
+import { getRegisteredDiscoveries } from './discovery.js';
 
 // --- Layer 1: Check Registry ---
 
@@ -162,12 +163,13 @@ export async function loadCheckDefinition(checkFolderPath: string): Promise<Chec
     if (ct.concurrency !== undefined && (typeof ct.concurrency !== 'number' || ct.concurrency <= 0 || !Number.isInteger(ct.concurrency))) {
       throw new Error(`Check definition "${defPath}": "checkTarget.concurrency" must be a positive integer`);
     }
-    // Validate discovery field for targeted/static types
+    // Validate discovery field is present for targeted/static types (actual type
+    // validation happens in validateCheck, after repo filtering, so unknown
+    // discovery types don't crash the entire scan for unrelated checks)
     if (ct.type === 'targeted' || ct.type === 'static') {
-      const validDiscoveries = ct.type === 'targeted' ? ['semgrep', 'openant', 'sarif'] : ['semgrep'];
-      if (typeof ct.discovery !== 'string' || !validDiscoveries.includes(ct.discovery)) {
+      if (typeof ct.discovery !== 'string' || ct.discovery.trim() === '') {
         throw new Error(
-          `Check definition "${defPath}": "checkTarget.discovery" is required for type "${ct.type}" and must be one of: ${validDiscoveries.join(', ')}`,
+          `Check definition "${defPath}": "checkTarget.discovery" is required for type "${ct.type}"`,
         );
       }
     }
@@ -385,6 +387,18 @@ export async function validateCheck(
 
   if (!check.id || typeof check.id !== 'string' || check.id.trim() === '') {
     errors.push('Check is missing a valid "id" field');
+  }
+
+  // Validate discovery type is registered (checked here, after repo filtering,
+  // so unknown discovery types in unrelated checks don't crash the scan).
+  // Only validates when discoveries have been registered (skips in unit tests
+  // where scan-runner.ts hasn't been imported).
+  const discovery = check.checkTarget?.discovery;
+  if (discovery) {
+    const registered = getRegisteredDiscoveries();
+    if (registered.length > 0 && !registered.includes(discovery)) {
+      errors.push(`Unknown discovery type "${discovery}". Available: ${registered.join(', ')}`);
+    }
   }
 
   // Built-in analysis modes provide their own prompt template — no instructionsFile needed
