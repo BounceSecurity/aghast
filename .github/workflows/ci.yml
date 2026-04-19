@@ -32,6 +32,7 @@ jobs:
       contents: read
       checks: read
       pull-requests: read
+      actions: read
     steps:
       - name: Check if merged PR already passed CI
         id: check
