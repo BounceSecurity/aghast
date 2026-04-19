@@ -303,6 +303,8 @@ FAIL with ~3 issues: the AI should confirm the true positive findings (unescaped
 
 ### Example 5: Various Security Vulnerabilities (targeted check, OpenAnt discovery, general vulnerability analysis)
 
+[Click for a video walkthrough of running this example.](https://youtu.be/pALxeunbH7s)
+
 #### Check type
 
 `targeted` with `openant` discovery. Runs `openant parse` on the target repo to extract code units, then has the AI independently analyze each unit for security vulnerabilities.

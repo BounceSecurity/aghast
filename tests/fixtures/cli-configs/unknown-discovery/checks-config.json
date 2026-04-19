@@ -1,0 +1,9 @@
+{
+  "checks": [
+    {
+      "id": "aghast-unknown-disc",
+      "repositories": [],
+      "enabled": true
+    }
+  ]
+}

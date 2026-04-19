@@ -25,11 +25,14 @@ jobs:
   check-ci-skip:
     runs-on: ubuntu-latest
     if: github.event_name == 'push'
+    continue-on-error: true
     outputs:
       skip: ${{ steps.check.outputs.skip }}
     permissions:
       contents: read
       checks: read
+      pull-requests: read
+      actions: read
     steps:
       - name: Check if merged PR already passed CI
         id: check
