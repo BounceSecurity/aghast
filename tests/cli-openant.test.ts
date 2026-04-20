@@ -1,6 +1,6 @@
 /**
  * CLI integration tests for the openant discovery type.
- * Spawns the real CLI process with AGHAST_MOCK_AI=true and AGHAST_MOCK_OPENANT=<dataset>.
+ * Spawns the real CLI process with AGHAST_MOCK_AI=true and AGHAST_OPENANT_DATASET=<dataset>.
  */
 
 import { describe, it, before, after } from 'node:test';
@@ -42,7 +42,7 @@ describe('CLI: openant discovery type', () => {
 
   it('should PASS with default mock AI response (empty issues)', async () => {
     const result = await runCLI(
-      { AGHAST_MOCK_AI: 'true', AGHAST_MOCK_OPENANT: openantDataset },
+      { AGHAST_MOCK_AI: 'true', AGHAST_OPENANT_DATASET: openantDataset },
       [
         fixtureRepo,
         '--config-dir', openantConfigDir,
@@ -62,7 +62,7 @@ describe('CLI: openant discovery type', () => {
 
   it('should FAIL when mock AI returns issues', async () => {
     const result = await runCLI(
-      { AGHAST_MOCK_AI: failFixtureRepo, AGHAST_MOCK_OPENANT: openantDataset },
+      { AGHAST_MOCK_AI: failFixtureRepo, AGHAST_OPENANT_DATASET: openantDataset },
       [
         fixtureRepo,
         '--config-dir', openantConfigDir,
@@ -103,7 +103,7 @@ describe('CLI: openant discovery type', () => {
 
   it('should PASS with base (non-enhanced) dataset', async () => {
     const result = await runCLI(
-      { AGHAST_MOCK_AI: 'true', AGHAST_MOCK_OPENANT: openantBaseDataset },
+      { AGHAST_MOCK_AI: 'true', AGHAST_OPENANT_DATASET: openantBaseDataset },
       [
         fixtureRepo,
         '--config-dir', openantConfigDir,
@@ -122,7 +122,7 @@ describe('CLI: openant discovery type', () => {
 
   it('should include scan metadata in output', async () => {
     const result = await runCLI(
-      { AGHAST_MOCK_AI: 'true', AGHAST_MOCK_OPENANT: openantDataset },
+      { AGHAST_MOCK_AI: 'true', AGHAST_OPENANT_DATASET: openantDataset },
       [
         fixtureRepo,
         '--config-dir', openantConfigDir,

@@ -45,7 +45,7 @@ Run `aghast scan --help` for the full list of options.
 | `AGHAST_LOG_FILE` | Log file path (CLI `--log-file` takes precedence) |
 | `AGHAST_LOG_TYPE` | Log file handler type (CLI `--log-type` takes precedence) |
 | `AGHAST_MOCK_SEMGREP` | Path to a SARIF file to use instead of running Semgrep (for testing `semgrep` discovery without Semgrep installed) |
-| `AGHAST_MOCK_OPENANT` | Path to a dataset JSON file to use instead of running `openant parse` (for testing `openant` discovery without OpenAnt installed) |
+| `AGHAST_OPENANT_DATASET` | Path to a pre-generated OpenAnt dataset JSON file. When set, aghast uses this dataset directly instead of invoking `openant parse`. Useful for caching the dataset across multiple scans, splitting OpenAnt and aghast into separate CI jobs, running aghast where Python 3.11+ isn't available, or stubbing OpenAnt output in tests |
 | `NO_COLOR` | Set to `1` to disable colored CLI output ([standard](https://no-color.org/)) |
 
 ## Runtime Configuration

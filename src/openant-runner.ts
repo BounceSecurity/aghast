@@ -22,10 +22,11 @@ function getOpenAntBinary(): string {
 /**
  * Verify that OpenAnt is installed and available on PATH.
  * Resolves if found, rejects with a user-friendly error if not.
- * Skips the check when AGHAST_MOCK_OPENANT is set.
+ * Skips the check when AGHAST_OPENANT_DATASET is set (the dataset is
+ * supplied directly, so there is no need to invoke OpenAnt).
  */
 export async function verifyOpenAntInstalled(): Promise<void> {
-  if (process.env.AGHAST_MOCK_OPENANT) return;
+  if (process.env.AGHAST_OPENANT_DATASET) return;
   const binary = getOpenAntBinary();
   return new Promise((resolve, reject) => {
     execFile(binary, ['--help'], (error) => {
@@ -42,7 +43,9 @@ export async function verifyOpenAntInstalled(): Promise<void> {
 
 /**
  * Execute `openant parse` and return the path to the generated dataset.json.
- * If AGHAST_MOCK_OPENANT env var is set, copies that file to a temp location instead.
+ * If AGHAST_OPENANT_DATASET env var is set, uses that file instead of invoking
+ * OpenAnt. Useful in CI pipelines that cache the dataset across runs, in
+ * environments without Python 3.11+, or for tests that stub the OpenAnt output.
  *
  * The caller is responsible for cleaning up the returned temp directory via
  * the cleanup function returned alongside the dataset path.
@@ -50,18 +53,18 @@ export async function verifyOpenAntInstalled(): Promise<void> {
 export async function runOpenAnt(
   repositoryPath: string,
 ): Promise<{ datasetPath: string; cleanup: () => Promise<void> }> {
-  const mockFile = process.env.AGHAST_MOCK_OPENANT;
-  if (mockFile) {
-    logDebug(TAG, `Mock mode: using dataset from ${mockFile}`);
+  const preloadedDataset = process.env.AGHAST_OPENANT_DATASET;
+  if (preloadedDataset) {
+    logDebug(TAG, `Using preloaded dataset from ${preloadedDataset}`);
     // Copy to temp dir so cleanup logic is consistent
-    const tmpDir = await mkdtemp(join(tmpdir(), 'aghast-openant-mock-'));
+    const tmpDir = await mkdtemp(join(tmpdir(), 'aghast-openant-preloaded-'));
     const datasetPath = join(tmpDir, 'dataset.json');
-    await copyFile(mockFile, datasetPath);
+    await copyFile(preloadedDataset, datasetPath);
     return {
       datasetPath,
       cleanup: async () => {
         await rm(tmpDir, { recursive: true, force: true }).catch((err) => {
-          logDebug(TAG, `Failed to clean up mock temp directory ${tmpDir}: ${err}`);
+          logDebug(TAG, `Failed to clean up temp directory ${tmpDir}: ${err}`);
         });
       },
     };

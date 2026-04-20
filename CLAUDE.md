@@ -49,7 +49,7 @@ Each targeted/static check specifies `checkTarget.discovery` (e.g., `semgrep`, `
 - GitHub Actions CI runs on push to main and all PRs
 - The CLI supports `AGHAST_MOCK_AI=true` to use a mock AI provider (no API key needed), or `AGHAST_MOCK_AI=<path>` to supply a custom response fixture file
 - `AGHAST_MOCK_SEMGREP=<path>` — Provide a SARIF file to use instead of running Semgrep (for testing targeted/static checks without Semgrep installed)
-- `AGHAST_MOCK_OPENANT=<path>` — Provide a JSON file to use instead of running OpenAnt (for testing targeted checks with openant discovery without OpenAnt installed)
+- `AGHAST_OPENANT_DATASET=<path>` — Provide a pre-generated OpenAnt dataset JSON file to use instead of invoking `openant parse`. Used for tests (so suites pass without OpenAnt installed) and supports production use cases like caching the dataset across runs or splitting OpenAnt into a separate CI job
 - `AGHAST_SKIP_SEMGREP_TESTS=true` — Skip real Semgrep integration tests (used in CI main job; Semgrep tests run in a separate CI job)
 - **When adding new functionality, always add CLI-level integration tests** in `tests/cli-mock-mode.test.ts` that spawn the real CLI process with `AGHAST_MOCK_AI=true`. These tests exercise the full pipeline (prompt building, response parsing, snippet extraction, issue enrichment, report generation) end-to-end. Include tests for PASS, FAIL, and ERROR scenarios as appropriate.
 
@@ -104,7 +104,7 @@ npm run scan -- /path/to/target --config-dir checks-config
 - `AGHAST_LOCAL_CLAUDE` — Set to `true` to use local Claude instead of API
 - `AGHAST_MOCK_AI` — Enables mock AI provider. Set to `true` for default `{"issues":[]}` response, or set to a file path
 - `AGHAST_MOCK_SEMGREP` — Path to SARIF file for mock Semgrep output
-- `AGHAST_MOCK_OPENANT` — Path to JSON file for mock OpenAnt output
+- `AGHAST_OPENANT_DATASET` — Path to a pre-generated OpenAnt dataset JSON file (skips invoking `openant parse`)
 - `AGHAST_DEBUG_PRINTPROMPT` — Print full prompts (requires `--debug`)
 - `NO_COLOR` — Set to `1` to disable colored CLI output (standard; respected automatically by `picocolors`)
 

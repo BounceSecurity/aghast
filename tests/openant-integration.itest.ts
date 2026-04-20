@@ -24,8 +24,8 @@ const skip = !!process.env.AGHAST_SKIP_OPENANT_TESTS || !opnInstalled;
 
 describe('OpenAnt integration tests', { skip }, () => {
   before(() => {
-    // Ensure AGHAST_MOCK_OPENANT is not set
-    delete process.env.AGHAST_MOCK_OPENANT;
+    // Ensure AGHAST_OPENANT_DATASET is not set
+    delete process.env.AGHAST_OPENANT_DATASET;
   });
 
   it('runOpenAnt parses test codebase and produces dataset.json', async () => {

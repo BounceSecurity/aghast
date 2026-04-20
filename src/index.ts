@@ -499,7 +499,7 @@ export async function runScan(args: string[]): Promise<void> {
   }
 
   // ─── Conditional OpenAnt verification ───
-  if (needsOpenant && !process.env.AGHAST_MOCK_OPENANT) {
+  if (needsOpenant && !process.env.AGHAST_OPENANT_DATASET) {
     try {
       await verifyOpenAntInstalled();
     } catch (err) {
