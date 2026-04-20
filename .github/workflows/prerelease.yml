@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Prerelease version (e.g. 0.5.0-beta.1, 1.0.0-rc.2, 0.5.0-alpha.3)'
+        description: 'Prerelease version, counter >= 1 (e.g. 0.5.0-beta.1, 1.0.0-rc.2, 0.5.0-alpha.3)'
         required: true
         type: string
 
@@ -29,40 +29,41 @@ jobs:
         run: |
           # Project convention: x.y.z-<id>.<n>. Narrower than the full semver
           # grammar on purpose — the dist-tag is derived from <id>, so we
-          # require a single alphabetic identifier and a numeric counter.
-          if ! echo "$INPUT_VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+-[a-zA-Z][a-zA-Z0-9]*\.[0-9]+$'; then
-            echo "::error::Invalid prerelease version: '$INPUT_VERSION'. Must be x.y.z-<id>.<n> (e.g. 0.5.0-beta.1). For stable releases use the Release workflow."
+          # require a single alphabetic identifier. The counter <n> must
+          # start at 1 (0 is rejected) to match the documented convention
+          # and avoid accidentally publishing `@beta.0` when the first
+          # beta was intended to be `@beta.1`.
+          if ! echo "$INPUT_VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+-[a-zA-Z][a-zA-Z0-9]*\.[1-9][0-9]*$'; then
+            echo "::error::Invalid prerelease version: '$INPUT_VERSION'. Must be x.y.z-<id>.<n> with <n> >= 1 (e.g. 0.5.0-beta.1). For stable releases use the Release workflow."
             exit 1
           fi
 
           CURRENT_VERSION=$(node -p "require('./package.json').version")
 
-          if [ "$INPUT_VERSION" = "$CURRENT_VERSION" ]; then
-            echo "::error::Version $INPUT_VERSION is the same as the current package.json version"
-            exit 1
-          fi
-
           # Base (x.y.z) of the prerelease must be strictly greater than the
-          # current stable version. Prevents tagging e.g. 0.3.0-beta.1 or
-          # 0.4.3-beta.1 when current stable is 0.4.3, which would place the
-          # prerelease semantically before/at an already-published release.
+          # current stable version. This also subsumes the prior exact-match
+          # check: INPUT == CURRENT would require CURRENT to contain a
+          # prerelease suffix (since INPUT is required to), but we strip any
+          # suffix from CURRENT below for robustness, so equal bases fail
+          # the strictly-greater test and are rejected here.
           BASE_VERSION="${INPUT_VERSION%%-*}"
+          CURRENT_BASE="${CURRENT_VERSION%%-*}"
           IS_GREATER=$(node -e "
             const [aMaj, aMin, aPat] = process.argv[1].split('.').map(Number);
             const [bMaj, bMin, bPat] = process.argv[2].split('.').map(Number);
             const gt = aMaj > bMaj || (aMaj === bMaj && aMin > bMin) || (aMaj === bMaj && aMin === bMin && aPat > bPat);
             console.log(gt ? 'yes' : 'no');
-          " "$BASE_VERSION" "$CURRENT_VERSION")
+          " "$BASE_VERSION" "$CURRENT_BASE")
           if [ "$IS_GREATER" != "yes" ]; then
-            echo "::error::Prerelease base $BASE_VERSION must be strictly greater than current stable $CURRENT_VERSION"
+            echo "::error::Prerelease base $BASE_VERSION must be strictly greater than current stable $CURRENT_BASE"
             exit 1
           fi
 
-          # Reject if the tag already exists on the remote. Re-checked
-          # immediately before `git push` below to narrow the race window.
-          git fetch --tags --quiet
-          if git rev-parse -q --verify "refs/tags/v$INPUT_VERSION" >/dev/null; then
-            echo "::error::Tag v$INPUT_VERSION already exists"
+          # Early-exit check against the remote for a nicer error than
+          # `git push` would give. The authoritative guard is `--atomic` on
+          # the push itself, which fails server-side if the tag exists.
+          if git ls-remote --exit-code --tags origin "refs/tags/v$INPUT_VERSION" >/dev/null 2>&1; then
+            echo "::error::Tag v$INPUT_VERSION already exists on the remote"
             exit 1
           fi
 
@@ -85,25 +86,20 @@ jobs:
           git commit -m "chore: prerelease v$INPUT_VERSION"
           git tag "v$INPUT_VERSION"
 
-          # Re-check remote for the tag just before pushing, in case a
-          # concurrent workflow dispatch tagged the same version between
-          # the validation step and now.
-          git fetch --tags --quiet
-          if git ls-remote --exit-code --tags origin "refs/tags/v$INPUT_VERSION" >/dev/null 2>&1; then
-            echo "::error::Tag v$INPUT_VERSION appeared on remote between validation and push — aborting"
-            exit 1
-          fi
-
-          # Push the tag only — main is not modified.
-          git push origin "v$INPUT_VERSION"
+          # Push the tag only — main is not modified. `--atomic` makes the
+          # tag creation fail server-side if the ref already exists (e.g. a
+          # concurrent workflow dispatch tagged the same version), rather
+          # than silently diverging.
+          git push --atomic origin "v$INPUT_VERSION"
 
       - name: Extract npm dist-tag from version
         id: disttag
         env:
           INPUT_VERSION: ${{ inputs.version }}
         run: |
-          # 0.5.0-beta.1 -> beta ; 1.0.0-rc.2 -> rc ; 0.5.0-alpha.3 -> alpha
-          TAG=$(echo "$INPUT_VERSION" | sed -E 's/^[0-9]+\.[0-9]+\.[0-9]+-([a-zA-Z][a-zA-Z0-9]*)\.[0-9]+$/\1/')
+          # 0.5.0-beta.1 -> beta ; 1.0.0-rc.2 -> rc ; 0.5.0-alpha.3 -> alpha.
+          # Counter pattern matches the validation regex (>= 1).
+          TAG=$(echo "$INPUT_VERSION" | sed -E 's/^[0-9]+\.[0-9]+\.[0-9]+-([a-zA-Z][a-zA-Z0-9]*)\.[1-9][0-9]*$/\1/')
           if [ -z "$TAG" ] || [ "$TAG" = "$INPUT_VERSION" ]; then
             echo "::error::Could not extract dist-tag from $INPUT_VERSION"
             exit 1
