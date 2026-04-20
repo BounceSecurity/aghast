@@ -1,0 +1,103 @@
+name: Prerelease
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Prerelease version (e.g. 0.5.0-beta.1, 1.0.0-rc.2, 0.5.0-alpha.3)'
+        required: true
+        type: string
+
+permissions: read-all
+
+jobs:
+  prerelease:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          token: ${{ secrets.RELEASE_PAT }}
+
+      - name: Validate version input
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          # Must match x.y.z-<identifier>.<n> format (semver prerelease)
+          if ! echo "$INPUT_VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+-[a-zA-Z][a-zA-Z0-9]*\.[0-9]+$'; then
+            echo "::error::Invalid prerelease version: '$INPUT_VERSION'. Must be x.y.z-<id>.<n> (e.g. 0.5.0-beta.1). For stable releases use the Release workflow."
+            exit 1
+          fi
+
+          CURRENT_VERSION=$(node -p "require('./package.json').version")
+
+          if [ "$INPUT_VERSION" = "$CURRENT_VERSION" ]; then
+            echo "::error::Version $INPUT_VERSION is the same as the current package.json version"
+            exit 1
+          fi
+
+          # Reject if the tag already exists on the remote
+          git fetch --tags --quiet
+          if git rev-parse -q --verify "refs/tags/v$INPUT_VERSION" >/dev/null; then
+            echo "::error::Tag v$INPUT_VERSION already exists"
+            exit 1
+          fi
+
+          echo "Publishing prerelease v$INPUT_VERSION (current stable: v$CURRENT_VERSION)"
+
+      - uses: ./.github/release-actions/wait-for-ci
+
+      - name: Bump version (runner only)
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: node .github/scripts/update-version-refs.cjs "$INPUT_VERSION" --prerelease
+
+      - name: Create throwaway commit and push tag only
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add package.json package-lock.json
+          git commit -m "chore: prerelease v$INPUT_VERSION"
+          git tag "v$INPUT_VERSION"
+          # Push the tag only — main is not modified.
+          git push origin "v$INPUT_VERSION"
+
+      - name: Extract npm dist-tag from version
+        id: disttag
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          # 0.5.0-beta.1 -> beta ; 1.0.0-rc.2 -> rc ; 0.5.0-alpha.3 -> alpha
+          TAG=$(echo "$INPUT_VERSION" | sed -E 's/^[0-9]+\.[0-9]+\.[0-9]+-([a-zA-Z][a-zA-Z0-9]*)\.[0-9]+$/\1/')
+          if [ -z "$TAG" ] || [ "$TAG" = "$INPUT_VERSION" ]; then
+            echo "::error::Could not extract dist-tag from $INPUT_VERSION"
+            exit 1
+          fi
+          echo "Using npm dist-tag: $TAG"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Build, pack, and sign
+        uses: ./.github/release-actions/build-pack-sign
+        with:
+          version: ${{ inputs.version }}
+
+      - name: Publish to npmjs
+        run: npm publish --access public --provenance --tag "${{ steps.disttag.outputs.tag }}"
+
+      - name: Create GitHub Release (prerelease)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          gh release create "v$INPUT_VERSION" \
+            --title "v$INPUT_VERSION" \
+            --prerelease \
+            --generate-notes \
+            "bouncesecurity-aghast-${INPUT_VERSION}.tgz" \
+            "bouncesecurity-aghast-${INPUT_VERSION}.tgz.sigstore"

@@ -1,0 +1,54 @@
+name: Build, pack, and sign
+description: Install deps, build, npm pack, and sign the resulting tarball with cosign.
+
+inputs:
+  version:
+    description: Version string used to locate the packed tarball (e.g. 0.5.0 or 0.5.0-beta.1).
+    required: true
+
+outputs:
+  tarball:
+    description: Path to the packed npm tarball.
+    value: ${{ steps.paths.outputs.tarball }}
+  signature:
+    description: Path to the cosign signature bundle.
+    value: ${{ steps.paths.outputs.signature }}
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
+      with:
+        node-version: '24'
+        cache: 'npm'
+        registry-url: 'https://registry.npmjs.org'
+
+    - name: Install dependencies
+      shell: bash
+      run: npm ci
+
+    - name: Build and pack
+      shell: bash
+      run: |
+        npm run build
+        npm pack
+
+    - uses: sigstore/cosign-installer@cad07c2e89fa2edd6e2d7bab4c1aa38e53f76003 # v4.1.1
+
+    - name: Resolve artifact paths
+      id: paths
+      shell: bash
+      env:
+        INPUT_VERSION: ${{ inputs.version }}
+      run: |
+        TARBALL="bouncesecurity-aghast-${INPUT_VERSION}.tgz"
+        SIGNATURE="${TARBALL}.sigstore"
+        echo "tarball=$TARBALL" >> "$GITHUB_OUTPUT"
+        echo "signature=$SIGNATURE" >> "$GITHUB_OUTPUT"
+
+    - name: Sign release artifact
+      shell: bash
+      env:
+        TARBALL: ${{ steps.paths.outputs.tarball }}
+        SIGNATURE: ${{ steps.paths.outputs.signature }}
+      run: cosign sign-blob --yes --bundle "$SIGNATURE" "$TARBALL"
