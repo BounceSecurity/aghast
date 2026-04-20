@@ -144,9 +144,8 @@ Precedence: CLI flags > environment variables > runtime config > built-in defaul
 - `src/formatters/json-formatter.ts` — JSON output formatter
 - `src/formatters/sarif-formatter.ts` — SARIF output formatter
 - `src/formatters/types.ts` — Formatter type definitions
-- `.github/workflows/release.yml` — Release workflow (version bump, README update, tag, build, GitHub release)
-- `.github/workflows/prerelease.yml` — Prerelease workflow (tag-only bump, publishes to npm under non-`latest` dist-tag derived from `<id>`)
-- `.github/release-actions/` — Composite actions shared by `release.yml` and `prerelease.yml` (CI-wait polling, build/pack/sign)
+- `.github/workflows/release.yml` — Unified release workflow handling both stable (`x.y.z`) and prerelease (`x.y.z-<id>.<n>`) versions; auto-detects the flow from the input format
+- `.github/release-actions/` — Composite actions used by `release.yml` (CI-wait polling, build/pack/sign)
 - `eslint.config.js` — ESLint flat config (TypeScript + recommended rules)
 - `config/prompts/` — Generic prompt templates prepended to all check executions (selected via `--generic-prompt` or `AGHAST_GENERIC_PROMPT`); includes `false-positive-validation.md` and `general-vuln-discovery.md` used when `analysisMode` is set in check definitions
 - `docs/README.md` — Documentation index
@@ -168,25 +167,13 @@ Precedence: CLI flags > environment variables > runtime config > built-in defaul
 
 ### Release Workflow
 
-Releases are created via the `release.yml` GitHub Actions workflow (triggered manually via `workflow_dispatch`):
+Releases (stable and prerelease) are created via the single `release.yml` GitHub Actions workflow (triggered manually via `workflow_dispatch`). The workflow auto-detects the flow from the version format — both paths live in one workflow because npm Trusted Publishing authorizes exactly one workflow filename per package.
 
-1. Input a version (e.g. `1.2.0`) — must be semver, strictly greater than current
-2. Workflow updates `package.json` version and README install command, commits to main
-3. Creates git tag `v<version>`, builds, packs, publishes to GitHub Packages, creates GitHub Release with tarball
+**Stable release** — input `x.y.z` (e.g. `1.2.0`). Must be strictly greater than current. Workflow updates `package.json` + install command in `docs/getting-started.md`, commits to main, tags `v<version>`, builds, packs, publishes to npm under the default `latest` dist-tag, and creates a GitHub Release.
 
-Users install via `npm install -g @bouncesecurity/aghast@<version>` (requires `~/.npmrc` with `@bouncesecurity` scope config).
+**Prerelease** — input `x.y.z-<id>.<n>` (e.g. `0.5.0-beta.1`). Base `x.y.z` must be strictly greater than current stable; `<id>` must be alphabetic (`beta` / `rc` / `alpha`); `<n>` must be `>= 1`. Workflow bumps `package.json` / `package-lock.json` in the runner only — `main` is NOT modified, so subsequent stable releases still see the current stable as the base for their strictly-greater check. Creates and atomically pushes only the tag `v<version>` (version-bump commit is reachable only through the tag). Publishes to npm with `npm publish --tag <id>`, leaving the `latest` dist-tag unchanged. Users opt in via `npm install @bouncesecurity/aghast@<id>`. GitHub Release is marked as pre-release.
 
-### Prerelease Workflow
-
-Prereleases (betas, release candidates) are published via the `prerelease.yml` GitHub Actions workflow (also `workflow_dispatch`):
-
-1. Input a version in the form `x.y.z-<id>.<n>` (e.g. `0.5.0-beta.1`). Base `x.y.z` must be strictly greater than current stable; `<id>` must be alphabetic (`beta` / `rc` / `alpha`); `<n>` must be `>= 1`.
-2. Workflow bumps `package.json` / `package-lock.json` in the runner only — `main` is NOT modified, so subsequent stable `release.yml` runs still see the current stable as the base for their strictly-greater check.
-3. Creates and pushes only the tag `v<version>` (version-bump commit is reachable only through the tag). Uses `git push --atomic` so concurrent dispatches fail cleanly.
-4. Publishes to npm with `npm publish --tag <id>` — the default `latest` dist-tag is unchanged, so `npm install @bouncesecurity/aghast` keeps resolving to the stable release. Users opt in via `npm install @bouncesecurity/aghast@<id>`.
-5. GitHub Release is marked `--prerelease` so it doesn't appear as "Latest" on the releases page.
-
-Shared build/sign/CI-wait steps live in `.github/release-actions/` and are consumed by both workflows.
+Users install stable via `npm install -g @bouncesecurity/aghast@<version>` (requires `~/.npmrc` with `@bouncesecurity` scope config). Shared build/sign/CI-wait steps live in `.github/release-actions/`.
 
 ## Documentation
 
