@@ -41,11 +41,12 @@ jobs:
           CURRENT_VERSION=$(node -p "require('./package.json').version")
 
           # Base (x.y.z) of the prerelease must be strictly greater than the
-          # current stable version. This also subsumes the prior exact-match
-          # check: INPUT == CURRENT would require CURRENT to contain a
-          # prerelease suffix (since INPUT is required to), but we strip any
-          # suffix from CURRENT below for robustness, so equal bases fail
-          # the strictly-greater test and are rejected here.
+          # current stable version. Equal bases are rejected, which also
+          # subsumes the INPUT == CURRENT check. In the normal flow
+          # CURRENT_VERSION is always a clean x.y.z (main only ever holds
+          # stable versions), so the suffix strip is a no-op — it's a
+          # no-cost safety net if package.json was manually edited to
+          # contain a prerelease string.
           BASE_VERSION="${INPUT_VERSION%%-*}"
           CURRENT_BASE="${CURRENT_VERSION%%-*}"
           IS_GREATER=$(node -e "
@@ -67,7 +68,7 @@ jobs:
             exit 1
           fi
 
-          echo "Publishing prerelease v$INPUT_VERSION (current stable: v$CURRENT_VERSION)"
+          echo "Publishing prerelease v$INPUT_VERSION (current stable: v$CURRENT_BASE)"
 
       - uses: ./.github/release-actions/wait-for-ci
 
