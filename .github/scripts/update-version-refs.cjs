@@ -1,8 +1,13 @@
 const fs = require('fs');
 
-const version = process.argv[2];
+const args = process.argv.slice(2);
+const flags = new Set(args.filter(a => a.startsWith('--')));
+const positional = args.filter(a => !a.startsWith('--'));
+const version = positional[0];
+const isPrerelease = flags.has('--prerelease');
+
 if (!version) {
-  console.error('Usage: node update-version-refs.cjs <version>');
+  console.error('Usage: node update-version-refs.cjs <version> [--prerelease]');
   process.exit(1);
 }
 
@@ -10,6 +15,21 @@ if (!version) {
 const pkg = JSON.parse(fs.readFileSync('package.json', 'utf-8'));
 pkg.version = version;
 fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
+
+// Update package-lock.json version to match
+const lockPath = 'package-lock.json';
+const lock = JSON.parse(fs.readFileSync(lockPath, 'utf-8'));
+lock.version = version;
+if (lock.packages && lock.packages['']) {
+  lock.packages[''].version = version;
+}
+fs.writeFileSync(lockPath, JSON.stringify(lock, null, 2) + '\n');
+
+// Prereleases do not move the documented install command or the release.yml
+// input description — those both track the latest stable version.
+if (isPrerelease) {
+  process.exit(0);
+}
 
 // Update version references in docs
 for (const file of ['docs/getting-started.md']) {
@@ -20,15 +40,6 @@ for (const file of ['docs/getting-started.md']) {
   );
   fs.writeFileSync(file, content);
 }
-
-// Update package-lock.json version to match
-const lockPath = 'package-lock.json';
-const lock = JSON.parse(fs.readFileSync(lockPath, 'utf-8'));
-lock.version = version;
-if (lock.packages && lock.packages['']) {
-  lock.packages[''].version = version;
-}
-fs.writeFileSync(lockPath, JSON.stringify(lock, null, 2) + '\n');
 
 // Update release workflow description with next possible versions
 const [major, minor, patch] = version.split('.').map(Number);

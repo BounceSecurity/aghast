@@ -1,0 +1,129 @@
+name: Prerelease
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Prerelease version, counter >= 1 (e.g. 0.5.0-beta.1, 1.0.0-rc.2, 0.5.0-alpha.3)'
+        required: true
+        type: string
+
+permissions: read-all
+
+jobs:
+  prerelease:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          token: ${{ secrets.RELEASE_PAT }}
+
+      - name: Validate version input
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          # Project convention: x.y.z-<id>.<n>. Narrower than the full semver
+          # grammar on purpose — the dist-tag is derived from <id>, so we
+          # require a single alphabetic identifier. The counter <n> must
+          # start at 1 (0 is rejected) to match the documented convention
+          # and avoid accidentally publishing `@beta.0` when the first
+          # beta was intended to be `@beta.1`.
+          if ! echo "$INPUT_VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+-[a-zA-Z][a-zA-Z0-9]*\.[1-9][0-9]*$'; then
+            echo "::error::Invalid prerelease version: '$INPUT_VERSION'. Must be x.y.z-<id>.<n> with <n> >= 1 (e.g. 0.5.0-beta.1). For stable releases use the Release workflow."
+            exit 1
+          fi
+
+          CURRENT_VERSION=$(node -p "require('./package.json').version")
+
+          # Base (x.y.z) of the prerelease must be strictly greater than the
+          # current stable version. Equal bases are rejected, which also
+          # subsumes the INPUT == CURRENT check. In the normal flow
+          # CURRENT_VERSION is always a clean x.y.z (main only ever holds
+          # stable versions), so the suffix strip is a no-op — it's a
+          # no-cost safety net if package.json was manually edited to
+          # contain a prerelease string.
+          BASE_VERSION="${INPUT_VERSION%%-*}"
+          CURRENT_BASE="${CURRENT_VERSION%%-*}"
+          IS_GREATER=$(node -e "
+            const [aMaj, aMin, aPat] = process.argv[1].split('.').map(Number);
+            const [bMaj, bMin, bPat] = process.argv[2].split('.').map(Number);
+            const gt = aMaj > bMaj || (aMaj === bMaj && aMin > bMin) || (aMaj === bMaj && aMin === bMin && aPat > bPat);
+            console.log(gt ? 'yes' : 'no');
+          " "$BASE_VERSION" "$CURRENT_BASE")
+          if [ "$IS_GREATER" != "yes" ]; then
+            echo "::error::Prerelease base $BASE_VERSION must be strictly greater than current stable $CURRENT_BASE"
+            exit 1
+          fi
+
+          # Early-exit check against the remote for a nicer error than
+          # `git push` would give. The authoritative guard is `--atomic` on
+          # the push itself, which fails server-side if the tag exists.
+          if git ls-remote --exit-code --tags origin "refs/tags/v$INPUT_VERSION" >/dev/null 2>&1; then
+            echo "::error::Tag v$INPUT_VERSION already exists on the remote"
+            exit 1
+          fi
+
+          echo "Publishing prerelease v$INPUT_VERSION (current stable: v$CURRENT_BASE)"
+
+      - uses: ./.github/release-actions/wait-for-ci
+
+      - name: Bump version (runner only)
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: node .github/scripts/update-version-refs.cjs "$INPUT_VERSION" --prerelease
+
+      - name: Create throwaway commit and push tag only
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add package.json package-lock.json
+          git commit -m "chore: prerelease v$INPUT_VERSION"
+          git tag "v$INPUT_VERSION"
+
+          # Push the tag only — main is not modified. `--atomic` makes the
+          # tag creation fail server-side if the ref already exists (e.g. a
+          # concurrent workflow dispatch tagged the same version), rather
+          # than silently diverging.
+          git push --atomic origin "v$INPUT_VERSION"
+
+      - name: Extract npm dist-tag from version
+        id: disttag
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          # 0.5.0-beta.1 -> beta ; 1.0.0-rc.2 -> rc ; 0.5.0-alpha.3 -> alpha.
+          # Counter pattern matches the validation regex (>= 1).
+          TAG=$(echo "$INPUT_VERSION" | sed -E 's/^[0-9]+\.[0-9]+\.[0-9]+-([a-zA-Z][a-zA-Z0-9]*)\.[1-9][0-9]*$/\1/')
+          if [ -z "$TAG" ] || [ "$TAG" = "$INPUT_VERSION" ]; then
+            echo "::error::Could not extract dist-tag from $INPUT_VERSION"
+            exit 1
+          fi
+          echo "Using npm dist-tag: $TAG"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Build, pack, and sign
+        uses: ./.github/release-actions/build-pack-sign
+        with:
+          version: ${{ inputs.version }}
+
+      - name: Publish to npmjs
+        run: npm publish --access public --provenance --tag "${{ steps.disttag.outputs.tag }}"
+
+      - name: Create GitHub Release (prerelease)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          gh release create "v$INPUT_VERSION" \
+            --title "v$INPUT_VERSION" \
+            --prerelease \
+            --generate-notes \
+            "bouncesecurity-aghast-${INPUT_VERSION}.tgz" \
+            "bouncesecurity-aghast-${INPUT_VERSION}.tgz.sigstore"

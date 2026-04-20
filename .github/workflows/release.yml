@@ -56,46 +56,7 @@ jobs:
 
           echo "Releasing v$INPUT_VERSION (current: v$CURRENT_VERSION)"
 
-      - name: Verify CI passed on current commit
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          SHA=$(git rev-parse HEAD)
-          echo "Checking CI status for $SHA"
-
-          MAX_WAIT=600  # 10 minutes
-          INTERVAL=15
-          ELAPSED=0
-
-          while true; do
-            RUN_JSON=$(gh run list --commit "$SHA" --workflow CI --json conclusion,status --jq '.[0] // empty')
-            if [ -z "$RUN_JSON" ]; then
-              echo "::error::No CI run found for commit $SHA. Ensure CI has run on main before releasing."
-              exit 1
-            fi
-
-            STATUS=$(echo "$RUN_JSON" | jq -r '.status')
-            CONCLUSION=$(echo "$RUN_JSON" | jq -r '.conclusion // empty')
-
-            if [ "$STATUS" = "completed" ]; then
-              if [ "$CONCLUSION" = "success" ]; then
-                echo "CI passed on $SHA"
-                break
-              else
-                echo "::error::CI did not pass on commit $SHA (conclusion: $CONCLUSION). Fix CI before releasing."
-                exit 1
-              fi
-            fi
-
-            # CI is still running — wait
-            if [ "$ELAPSED" -ge "$MAX_WAIT" ]; then
-              echo "::error::Timed out waiting for CI on commit $SHA (status: $STATUS after ${ELAPSED}s)"
-              exit 1
-            fi
-            echo "CI is $STATUS on $SHA — waiting ${INTERVAL}s (${ELAPSED}s/${MAX_WAIT}s elapsed)"
-            sleep "$INTERVAL"
-            ELAPSED=$((ELAPSED + INTERVAL))
-          done
+      - uses: ./.github/release-actions/wait-for-ci
 
       - name: Update version references
         env:
@@ -120,28 +81,13 @@ jobs:
           git tag "v$INPUT_VERSION"
           git push origin "v$INPUT_VERSION"
 
-      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
+      - name: Build, pack, and sign
+        uses: ./.github/release-actions/build-pack-sign
         with:
-          node-version: '24'
-          cache: 'npm'
-          registry-url: 'https://registry.npmjs.org'
-
-      - run: npm ci
-
-      - name: Build and pack
-        run: |
-          npm run build
-          npm pack
+          version: ${{ inputs.version }}
 
       - name: Publish to npmjs
         run: npm publish --access public --provenance
-
-      - uses: sigstore/cosign-installer@cad07c2e89fa2edd6e2d7bab4c1aa38e53f76003 # v4.1.1
-
-      - name: Sign release artifact
-        env:
-          INPUT_VERSION: ${{ inputs.version }}
-        run: cosign sign-blob --yes --bundle "bouncesecurity-aghast-${INPUT_VERSION}.tgz.sigstore" "bouncesecurity-aghast-${INPUT_VERSION}.tgz"
 
       - name: Create GitHub Release
         env:
