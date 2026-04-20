@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Release version (e.g. 0.4.4, 0.5.0, 1.0.0)'
+        description: 'Release version. Stable: x.y.z (e.g. 0.4.4, 0.5.0, 1.0.0). Prerelease: x.y.z-<id>.<n>, counter >= 1 (e.g. 0.5.0-beta.1, 1.0.0-rc.2).'
         required: true
         type: string
 
@@ -23,48 +23,90 @@ jobs:
         with:
           token: ${{ secrets.RELEASE_PAT }}
 
-      - name: Validate version input
+      - name: Validate version input and detect release type
+        id: detect
         env:
           INPUT_VERSION: ${{ inputs.version }}
         run: |
-          # Must match x.y.z format
-          if ! echo "$INPUT_VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
-            echo "::error::Invalid version format: '$INPUT_VERSION'. Must be x.y.z (e.g. 1.2.0)"
-            exit 1
-          fi
-
-          # Read current version from package.json
+          # Auto-detect stable vs prerelease from the version format.
+          # Both paths live in this single workflow because npm Trusted
+          # Publishing authorizes exactly one workflow filename per package.
           CURRENT_VERSION=$(node -p "require('./package.json').version")
 
-          # Must differ from current
-          if [ "$INPUT_VERSION" = "$CURRENT_VERSION" ]; then
-            echo "::error::Version $INPUT_VERSION is the same as the current version"
+          if echo "$INPUT_VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            IS_PRERELEASE=false
+            BASE_VERSION="$INPUT_VERSION"
+            DIST_TAG=""
+          elif echo "$INPUT_VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+-[a-zA-Z][a-zA-Z0-9]*\.[1-9][0-9]*$'; then
+            # Project convention: x.y.z-<id>.<n>. Narrower than full semver on
+            # purpose — <id> is used directly as the npm dist-tag, and <n>
+            # must start at 1 (so `.0` is rejected to avoid publishing
+            # `@beta.0` when the first beta was intended to be `@beta.1`).
+            IS_PRERELEASE=true
+            BASE_VERSION="${INPUT_VERSION%%-*}"
+            DIST_TAG=$(echo "$INPUT_VERSION" | sed -E 's/^[0-9]+\.[0-9]+\.[0-9]+-([a-zA-Z][a-zA-Z0-9]*)\.[1-9][0-9]*$/\1/')
+          else
+            echo "::error::Invalid version format: '$INPUT_VERSION'. Must be x.y.z (stable) or x.y.z-<id>.<n> with <n> >= 1 (prerelease)."
             exit 1
           fi
 
-          # Must be strictly greater (semver comparison using node)
+          if [ "$INPUT_VERSION" = "$CURRENT_VERSION" ]; then
+            echo "::error::Version $INPUT_VERSION is the same as the current package.json version"
+            exit 1
+          fi
+
+          # Base must be strictly greater than the current stable's base.
+          # CURRENT_VERSION is stripped of any prerelease suffix as a no-op
+          # in the normal flow (main only holds stable versions) and as a
+          # safety net if package.json was manually edited.
+          CURRENT_BASE="${CURRENT_VERSION%%-*}"
           IS_GREATER=$(node -e "
-            const [aMaj, aMin, aPat] = '$INPUT_VERSION'.split('.').map(Number);
-            const [bMaj, bMin, bPat] = '$CURRENT_VERSION'.split('.').map(Number);
+            const [aMaj, aMin, aPat] = process.argv[1].split('.').map(Number);
+            const [bMaj, bMin, bPat] = process.argv[2].split('.').map(Number);
             const gt = aMaj > bMaj || (aMaj === bMaj && aMin > bMin) || (aMaj === bMaj && aMin === bMin && aPat > bPat);
             console.log(gt ? 'yes' : 'no');
-          ")
+          " "$BASE_VERSION" "$CURRENT_BASE")
           if [ "$IS_GREATER" != "yes" ]; then
-            echo "::error::Version $INPUT_VERSION is not greater than current version $CURRENT_VERSION"
+            if [ "$IS_PRERELEASE" = "true" ]; then
+              echo "::error::Prerelease base $BASE_VERSION must be strictly greater than current stable $CURRENT_BASE"
+            else
+              echo "::error::Version $INPUT_VERSION is not greater than current version $CURRENT_VERSION"
+            fi
             exit 1
           fi
 
-          echo "Releasing v$INPUT_VERSION (current: v$CURRENT_VERSION)"
+          # For prereleases, early-exit if the tag already exists on the
+          # remote. `git push --atomic` below is the authoritative guard.
+          if [ "$IS_PRERELEASE" = "true" ]; then
+            if git ls-remote --exit-code --tags origin "refs/tags/v$INPUT_VERSION" >/dev/null 2>&1; then
+              echo "::error::Tag v$INPUT_VERSION already exists on the remote"
+              exit 1
+            fi
+            echo "Publishing prerelease v$INPUT_VERSION with npm dist-tag '$DIST_TAG' (current stable: v$CURRENT_BASE)"
+          else
+            echo "Releasing v$INPUT_VERSION (current: v$CURRENT_VERSION)"
+          fi
+
+          echo "is_prerelease=$IS_PRERELEASE" >> "$GITHUB_OUTPUT"
+          echo "dist_tag=$DIST_TAG" >> "$GITHUB_OUTPUT"
 
       - uses: ./.github/release-actions/wait-for-ci
 
-      - name: Update version references
+      - name: Update version references (stable)
+        if: steps.detect.outputs.is_prerelease == 'false'
         env:
           INPUT_VERSION: ${{ inputs.version }}
         run: |
           node .github/scripts/update-version-refs.cjs "$INPUT_VERSION"
 
-      - name: Commit version bump
+      - name: Bump version in runner only (prerelease)
+        if: steps.detect.outputs.is_prerelease == 'true'
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: node .github/scripts/update-version-refs.cjs "$INPUT_VERSION" --prerelease
+
+      - name: Commit and push version bump (stable)
+        if: steps.detect.outputs.is_prerelease == 'false'
         env:
           INPUT_VERSION: ${{ inputs.version }}
         run: |
@@ -73,29 +115,59 @@ jobs:
           git add package.json package-lock.json docs/getting-started.md .github/workflows/release.yml
           git commit -m "chore: release v$INPUT_VERSION"
           git push
+          git tag "v$INPUT_VERSION"
+          git push origin "v$INPUT_VERSION"
 
-      - name: Create git tag
+      - name: Create throwaway commit and push tag only (prerelease)
+        if: steps.detect.outputs.is_prerelease == 'true'
         env:
           INPUT_VERSION: ${{ inputs.version }}
         run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add package.json package-lock.json
+          git commit -m "chore: prerelease v$INPUT_VERSION"
           git tag "v$INPUT_VERSION"
-          git push origin "v$INPUT_VERSION"
+          # Push the tag only — main is not modified. `--atomic` makes the
+          # tag creation fail server-side if the ref already exists (e.g. a
+          # concurrent workflow dispatch tagged the same version), rather
+          # than silently diverging.
+          git push --atomic origin "v$INPUT_VERSION"
 
       - name: Build, pack, and sign
         uses: ./.github/release-actions/build-pack-sign
         with:
           version: ${{ inputs.version }}
 
-      - name: Publish to npmjs
+      - name: Publish to npmjs (stable)
+        if: steps.detect.outputs.is_prerelease == 'false'
         run: npm publish --access public --provenance
 
-      - name: Create GitHub Release
+      - name: Publish to npmjs (prerelease)
+        if: steps.detect.outputs.is_prerelease == 'true'
+        run: npm publish --access public --provenance --tag "${{ steps.detect.outputs.dist_tag }}"
+
+      - name: Create GitHub Release (stable)
+        if: steps.detect.outputs.is_prerelease == 'false'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           INPUT_VERSION: ${{ inputs.version }}
         run: |
           gh release create "v$INPUT_VERSION" \
             --title "v$INPUT_VERSION" \
+            --generate-notes \
+            "bouncesecurity-aghast-${INPUT_VERSION}.tgz" \
+            "bouncesecurity-aghast-${INPUT_VERSION}.tgz.sigstore"
+
+      - name: Create GitHub Release (prerelease)
+        if: steps.detect.outputs.is_prerelease == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          gh release create "v$INPUT_VERSION" \
+            --title "v$INPUT_VERSION" \
+            --prerelease \
             --generate-notes \
             "bouncesecurity-aghast-${INPUT_VERSION}.tgz" \
             "bouncesecurity-aghast-${INPUT_VERSION}.tgz.sigstore"

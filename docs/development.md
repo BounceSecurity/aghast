@@ -52,19 +52,19 @@ If a release fixes a disclosed security vulnerability, update the generated GitH
 
 ## Prereleases
 
-Prereleases (betas, release candidates) are published via the **Prerelease** GitHub Actions workflow (`workflow_dispatch`):
+Prereleases (betas, release candidates) are published via the **same Release workflow** — it auto-detects prerelease vs stable from the input version format. Both paths share one workflow because npm Trusted Publishing authorizes exactly one workflow filename per package.
 
-1. Go to **Actions > Prerelease > Run workflow**
+1. Go to **Actions > Release > Run workflow**
 2. Enter a prerelease version in the form `x.y.z-<id>.<n>` (e.g. `0.5.0-beta.1`, `1.0.0-rc.2`, `0.5.0-alpha.3`). The base `x.y.z` must be strictly greater than the current stable version; `<id>` must be alphabetic (`beta` / `rc` / `alpha`); `<n>` is a numeric counter starting at `1`.
 3. The workflow automatically:
-   - Bumps `package.json` and `package-lock.json` in the runner only — `main` is **not** modified, so subsequent stable releases via the Release workflow still see the current stable version as the base for the "strictly greater" check.
-   - Creates and pushes only the tag `v<version>` (the version-bump commit is reachable only through the tag).
+   - Bumps `package.json` and `package-lock.json` in the runner only — `main` is **not** modified, so subsequent stable releases still see the current stable version as the base for the "strictly greater" check.
+   - Creates and atomically pushes only the tag `v<version>` (the version-bump commit is reachable only through the tag).
    - Builds, packs, signs, and publishes to npm with `--tag <id>` (e.g. `--tag beta`). The default `latest` dist-tag is unaffected, so `npm install @bouncesecurity/aghast` continues to resolve to the stable release.
    - Creates a GitHub Release marked as **pre-release** so it doesn't appear as "Latest" on the releases page.
 
 Users opt into a prerelease explicitly with `npm install -g @bouncesecurity/aghast@<id>` (e.g. `@beta`).
 
-The two shared composite actions used by both `release.yml` and `prerelease.yml` live under `.github/release-actions/`.
+Shared build/sign/CI-wait steps used by both flows live under `.github/release-actions/`.
 
 ---
 
