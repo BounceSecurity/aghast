@@ -39,11 +39,10 @@ async function listModelsViaAgentSdk(): Promise<readonly ProviderModelInfo[]> {
   const block = new Promise<void>((resolve) => {
     release = resolve;
   });
+  // eslint-disable-next-line require-yield -- intentional: streaming-input prompt that never yields, kept alive by `block` so `supportedModels()` can run.
   const prompt = (async function* (): AsyncGenerator<never, void, unknown> {
     await block;
-    if (false as boolean) {
-      yield undefined as never;
-    }
+    await new Promise<never>(() => {});
   })();
   const q = query({ prompt, options: {} });
   try {
