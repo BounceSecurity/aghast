@@ -10,13 +10,16 @@ import type { RuntimeConfig } from './types.js';
 
 /**
  * Load runtime configuration from file.
- * @param configDir - Directory containing runtime-config.json.
+ * @param configDir - Directory containing runtime-config.json. Optional when explicitPath is given.
  * @param explicitPath - Explicit path to the runtime config file (from --runtime-config CLI flag).
  * @returns Parsed RuntimeConfig object, or empty object if file absent
- * @throws Error if file exists but contains invalid JSON
+ * @throws Error if file exists but contains invalid JSON, or if neither argument resolves a path
  */
-export async function loadRuntimeConfig(configDir: string, explicitPath?: string): Promise<RuntimeConfig> {
-  const pathToLoad = explicitPath ?? resolve(configDir, 'runtime-config.json');
+export async function loadRuntimeConfig(configDir?: string, explicitPath?: string): Promise<RuntimeConfig> {
+  if (!explicitPath && !configDir) {
+    throw new Error('loadRuntimeConfig: one of configDir or explicitPath is required');
+  }
+  const pathToLoad = explicitPath ?? resolve(configDir!, 'runtime-config.json');
   let content: string;
   try {
     content = await readFile(pathToLoad, 'utf-8');

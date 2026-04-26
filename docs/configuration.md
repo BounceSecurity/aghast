@@ -273,6 +273,27 @@ An optional `runtime-config.json` file in the config directory (or specified via
 
 If the file is present but contains invalid JSON, the CLI exits with an error.
 
+### Building a runtime config
+
+Use `aghast build-config` to create or edit `runtime-config.json` interactively:
+
+```bash
+aghast build-config --config-dir ./my-checks
+```
+
+The command loads an existing file (if present) so unspecified fields are preserved. You choose providers and models from a closed list — what's available depends on the provider and your auth (e.g. the Claude Code provider returns more models when `ANTHROPIC_API_KEY` is set than under local-Claude auth).
+
+Pass `--non-interactive` plus value flags for scripted use, or `--clear <field>` to remove a field:
+
+```bash
+aghast build-config --config-dir ./my-checks --non-interactive \
+  --provider claude-code --model sonnet --output-format sarif
+
+aghast build-config --config-dir ./my-checks --clear logFile
+```
+
+Run `aghast build-config --help` for the full flag list.
+
 ---
 
 <p align="center">

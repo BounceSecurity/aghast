@@ -7,12 +7,13 @@ import { readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { DEFAULT_GENERIC_PROMPT } from './defaults.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_PROMPTS_DIR = resolve(__dirname, '..', 'config', 'prompts');
 
 function getGenericPromptPath(configDir?: string, genericPrompt?: string): string {
-  const filename = genericPrompt ?? 'generic-instructions.md';
+  const filename = genericPrompt ?? DEFAULT_GENERIC_PROMPT;
   if (filename.includes('/') || filename.includes('\\') || filename.includes('..')) {
     throw new Error(
       `Invalid generic prompt filename: must not contain path separators or "..". Got: "${filename}"`,

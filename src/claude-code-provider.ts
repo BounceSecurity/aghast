@@ -3,12 +3,63 @@
  * Uses @anthropic-ai/claude-agent-sdk per spec Section 6.2 / Appendix C.8.
  */
 
-import type { AIProvider, AIResponse, ProviderConfig, CheckResponse, TokenUsage } from './types.js';
+import type { AIProvider, AIResponse, ProviderConfig, CheckResponse, ProviderModelInfo, TokenUsage } from './types.js';
 import { DEFAULT_AI_MODEL, FatalProviderError } from './types.js';
 // import { parseAIResponse } from './response-parser.js';
 import { logProgress, logDebug, logDebugFull, createTimer } from './logging.js';
 
 const TAG = 'ai-provider';
+
+/** Hit the Anthropic API /v1/models endpoint (full canonical model list). */
+async function listModelsViaApiKey(apiKey: string): Promise<readonly ProviderModelInfo[]> {
+  const { default: Anthropic } = await import('@anthropic-ai/sdk');
+  const client = new Anthropic({ apiKey });
+  const out: ProviderModelInfo[] = [];
+  // `limit` is the page size, NOT a total cap — `for await` keeps fetching pages
+  // via the SDK's auto-pagination until the server reports no more.
+  for await (const m of client.models.list({ limit: 100 })) {
+    out.push({ id: m.id, label: m.display_name });
+  }
+  return out;
+}
+
+/** Ask the Claude Code agent SDK for its curated alias list (works with local-Claude auth).
+ *
+ * The SDK's `supportedModels()` is only available on a `Query` instance, not as a static
+ * call, so we have to spin up a streaming-input query just to issue one control request.
+ * The async generator never yields — we just await `block` so the SDK doesn't think the
+ * input stream has ended, then `interrupt()` it after `supportedModels()` returns.
+ *
+ * Best-effort cleanup: `release()` ends the prompt generator, then `interrupt()` cancels
+ * the query. Both are wrapped in a 5s timeout so a misbehaving SDK can't hang the CLI.
+ */
+async function listModelsViaAgentSdk(): Promise<readonly ProviderModelInfo[]> {
+  const { query } = await import('@anthropic-ai/claude-agent-sdk');
+  let release: (() => void) | undefined;
+  const block = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  // eslint-disable-next-line require-yield -- intentional: streaming-input prompt that never yields, kept alive by `block` so `supportedModels()` can run.
+  const prompt = (async function* (): AsyncGenerator<never, void, unknown> {
+    await block;
+    await new Promise<never>(() => {});
+  })();
+  const q = query({ prompt, options: {} });
+  try {
+    const models = await q.supportedModels();
+    return models.map((m) => ({
+      id: m.value,
+      label: m.displayName,
+      description: m.description,
+    }));
+  } finally {
+    release?.();
+    await Promise.race([
+      q.interrupt().catch(() => undefined),
+      new Promise((resolve) => setTimeout(resolve, 5000)),
+    ]);
+  }
+}
 const HEARTBEAT_INTERVAL_MS = 15000; // Log heartbeat every 15s if no activity
 const MAX_API_ERROR_RETRIES = 3; // Fail after this many consecutive API errors
 const MAX_ERROR_DETECTION_LENGTH = 200; // Only check short text chunks for SDK error patterns — longer text is AI analysis content
@@ -90,6 +141,20 @@ export class ClaudeCodeProvider implements AIProvider {
 
   setModel(model: string): void {
     this.model = model;
+  }
+
+  async listModels(): Promise<readonly ProviderModelInfo[]> {
+    // Tier 1: if ANTHROPIC_API_KEY is set, hit /v1/models for the full canonical list.
+    const apiKey = this.apiKey ?? process.env.ANTHROPIC_API_KEY;
+    if (apiKey) {
+      try {
+        return await listModelsViaApiKey(apiKey);
+      } catch (err) {
+        logDebug(TAG, `models.list() via API key failed, falling back to agent-SDK: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+    // Tier 2: ask the Claude Code agent SDK for its curated list (works with local Claude auth).
+    return await listModelsViaAgentSdk();
   }
 
   enableDebug(): void {

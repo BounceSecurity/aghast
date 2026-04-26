@@ -266,6 +266,16 @@ export interface AIResponse {
   tokenUsage?: TokenUsage;
 }
 
+/** Describes a single model exposed by a provider's `listModels()`. */
+export interface ProviderModelInfo {
+  /** Model identifier as accepted by the provider (stored in runtime config). */
+  id: string;
+  /** Optional human-readable label shown in selection UIs. */
+  label?: string;
+  /** Optional one-line description shown in selection UIs. */
+  description?: string;
+}
+
 export interface AIProvider {
   initialize(config: ProviderConfig): Promise<void>;
   executeCheck(
@@ -278,6 +288,8 @@ export interface AIProvider {
   getModelName?(): string;
   setModel?(model: string): void;
   enableDebug?(): void;
+  /** Closed list of models this provider accepts. Used by `aghast build-config`. */
+  listModels?(): Promise<readonly ProviderModelInfo[]>;
 }
 
 /**

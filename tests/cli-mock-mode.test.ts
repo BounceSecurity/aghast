@@ -85,7 +85,7 @@ describe('CLI mock mode: PASS scenarios', () => {
   it('stdout shows PASS in summary banner', async () => {
     const { stdout, stderr } = await runCLI({ AGHAST_MOCK_AI: 'true' });
     const combined = stdout + stderr;
-    assert.ok(combined.includes('AGHAST Scan Complete: PASS'), 'Summary banner should show PASS');
+    assert.ok(combined.includes('AGHAST Scan Complete: NO ISSUES DETECTED'), 'Summary banner should show NO ISSUES DETECTED');
   });
 });
 
@@ -301,7 +301,7 @@ describe('CLI mock mode: FAIL scenarios', () => {
       AGHAST_MOCK_AI: failFixtureRepo,
     });
     const combined = stdout + stderr;
-    assert.ok(combined.includes('AGHAST Scan Complete: FAIL'), 'Summary banner should show FAIL');
+    assert.ok(combined.includes('AGHAST Scan Complete: ISSUES DETECTED'), 'Summary banner should show ISSUES DETECTED');
   });
 });
 
@@ -343,7 +343,7 @@ describe('CLI mock mode: ERROR scenarios', () => {
       AGHAST_MOCK_AI: malformedFixture,
     });
     const combined = stdout + stderr;
-    assert.ok(combined.includes('AGHAST Scan Complete: ERROR'), 'Summary banner should show ERROR');
+    assert.ok(combined.includes('AGHAST Scan Complete: SCAN ERROR'), 'Summary banner should show SCAN ERROR');
   });
 
   it('ERROR check has rawAiResponse in check summary', async () => {
@@ -931,7 +931,7 @@ describe('CLI mock mode: multi-target checks', () => {
       [fixtureRepo, '--config-dir', multiTargetConfigDir],
     );
     const combined = stdout + stderr;
-    assert.ok(combined.includes('AGHAST Scan Complete: PASS'), 'Summary banner should show PASS');
+    assert.ok(combined.includes('AGHAST Scan Complete: NO ISSUES DETECTED'), 'Summary banner should show NO ISSUES DETECTED');
   });
 
   it('SARIF result without endLine is processed (endLine defaults to startLine)', async () => {

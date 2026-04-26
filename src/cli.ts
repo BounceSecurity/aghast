@@ -23,8 +23,9 @@ process.env._AGHAST_CLI = '1';
 const USAGE = `Usage: aghast <command> [options]
 
 Commands:
-  scan        Run security checks against a repository
-  new-check   Scaffold a new security check
+  scan           Run security checks against a repository
+  new-check      Scaffold a new security check
+  build-config   Build or edit a runtime-config.json (interactive or flag-driven)
 
 Options:
   --help      Show this help message
@@ -88,6 +89,11 @@ async function main(): Promise<void> {
     case 'new-check': {
       const { runNewCheck } = await import('./new-check.js');
       await runNewCheck(subArgs);
+      break;
+    }
+    case 'build-config': {
+      const { runBuildConfig } = await import('./build-config.js');
+      await runBuildConfig(subArgs);
       break;
     }
     default:

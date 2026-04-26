@@ -8,6 +8,7 @@
 import { runSemgrep } from '../semgrep-runner.js';
 import { parseSARIF, deduplicateTargets } from '../sarif-parser.js';
 import { logDebug } from '../logging.js';
+import { DEFAULT_GENERIC_PROMPT } from '../defaults.js';
 import type { TargetDiscovery, DiscoveredTarget, DiscoveryOptions } from '../discovery.js';
 import type { SecurityCheck } from '../types.js';
 
@@ -30,7 +31,7 @@ You MUST:
 
 export const semgrepDiscovery: TargetDiscovery = {
   name: 'semgrep',
-  defaultGenericPrompt: 'generic-instructions.md',
+  defaultGenericPrompt: DEFAULT_GENERIC_PROMPT,
   needsInstructions: true,
 
   async discover(
