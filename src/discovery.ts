@@ -26,8 +26,8 @@ export interface DiscoveredTarget {
   label: string;
   /** Extra context appended to prompt per target (e.g. call graph for openant, finding details for sarif). */
   promptEnrichment?: string;
-  /** Discovery-specific AI provider options (e.g. maxTurns for openant). */
-  aiOptions?: { maxTurns?: number };
+  /** Discovery-specific agent provider options (e.g. maxTurns for openant). */
+  agentOptions?: { maxTurns?: number };
   /** Message from the discovery tool (e.g. Semgrep finding description). */
   message?: string;
   /** Code snippet from the discovery tool (e.g. Semgrep snippet). */
@@ -106,4 +106,13 @@ export function getRegisteredDiscoveries(): string[] {
  */
 export function clearDiscoveryRegistry(): void {
   discoveryRegistry.clear();
+}
+
+/**
+ * Remove a single discovery by name. Returns true if the entry existed.
+ * Intended for tests that want to register a one-off discovery and clean
+ * it up without disturbing the standard registrations.
+ */
+export function unregisterDiscovery(name: string): boolean {
+  return discoveryRegistry.delete(name);
 }

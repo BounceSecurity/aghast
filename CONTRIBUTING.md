@@ -36,7 +36,7 @@ All new functionality must include tests. Specifically:
 - **CLI-level integration tests** in `tests/cli-mock-mode.test.ts` that spawn the real CLI process with `AGHAST_MOCK_AI=true`. These exercise the full pipeline end-to-end.
 - Include tests for **PASS**, **FAIL**, and **ERROR** scenarios as appropriate.
 - Tests use `node:test` and `node:assert` (Node.js built-in) — no external test frameworks.
-- The AI provider must be mocked/stubbed in all tests — tests must pass without `ANTHROPIC_API_KEY` set.
+- The agent provider must be mocked/stubbed in all tests — tests must pass without `ANTHROPIC_API_KEY` set.
 
 Run the test suite with:
 

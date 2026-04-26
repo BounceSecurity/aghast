@@ -1,14 +1,15 @@
 /**
- * Claude Code AI provider implementation.
+ * Claude Code agent provider implementation.
  * Uses @anthropic-ai/claude-agent-sdk per spec Section 6.2 / Appendix C.8.
  */
 
-import type { AIProvider, AIResponse, ProviderConfig, CheckResponse, ProviderModelInfo, TokenUsage } from './types.js';
-import { DEFAULT_AI_MODEL, FatalProviderError } from './types.js';
-// import { parseAIResponse } from './response-parser.js';
+import type { AgentProvider, AgentResponse, ProviderConfig, CheckResponse, ProviderModelInfo, TokenUsage } from './types.js';
+import { DEFAULT_MODEL, FatalProviderError } from './types.js';
+// import { parseAgentResponse } from './response-parser.js';
 import { logProgress, logDebug, logDebugFull, createTimer } from './logging.js';
+import { OUTPUT_SCHEMA } from './provider-utils.js';
 
-const TAG = 'ai-provider';
+const TAG = 'agent-provider';
 
 /** Hit the Anthropic API /v1/models endpoint (full canonical model list). */
 async function listModelsViaApiKey(apiKey: string): Promise<readonly ProviderModelInfo[]> {
@@ -70,46 +71,10 @@ export type QueryFn = (params: {
   options: Record<string, unknown>;
 }) => AsyncIterable<Record<string, unknown>>;
 
-// JSON schema for structured output (matches spec Section 4.4)
-const OUTPUT_SCHEMA = {
-  type: 'object',
-  properties: {
-    issues: {
-      type: 'array',
-      items: {
-        type: 'object',
-        properties: {
-          file: { type: 'string' },
-          startLine: { type: 'integer' },
-          endLine: { type: 'integer' },
-          description: { type: 'string' },
-          dataFlow: {
-            type: 'array',
-            items: {
-              type: 'object',
-              properties: {
-                file: { type: 'string' },
-                lineNumber: { type: 'integer' },
-                label: { type: 'string' },
-              },
-              required: ['file', 'lineNumber', 'label'],
-              additionalProperties: false,
-            },
-          },
-        },
-        required: ['file', 'startLine', 'endLine', 'description'],
-        additionalProperties: false,
-      },
-    },
-  },
-  required: ['issues'],
-  additionalProperties: false,
-} as const;
-
-export class ClaudeCodeProvider implements AIProvider {
+export class ClaudeCodeProvider implements AgentProvider {
   private apiKey: string | undefined;
   private useLocalClaude: boolean = false;
-  private model: string = DEFAULT_AI_MODEL;
+  private model: string = DEFAULT_MODEL;
   private _queryFn: QueryFn | undefined;
   private debugEnabled: boolean = false;
 
@@ -117,10 +82,16 @@ export class ClaudeCodeProvider implements AIProvider {
     this._queryFn = options?._queryFn;
   }
 
+  checkPrerequisites(): void {
+    if (!process.env.ANTHROPIC_API_KEY && process.env.AGHAST_LOCAL_CLAUDE !== 'true') {
+      throw new Error('ANTHROPIC_API_KEY environment variable is required');
+    }
+  }
+
   async initialize(config: ProviderConfig): Promise<void> {
     this.useLocalClaude = process.env.AGHAST_LOCAL_CLAUDE === 'true';
     this.apiKey = config.apiKey ?? process.env.ANTHROPIC_API_KEY;
-    // Model selection priority: config.model (from AGHAST_AI_MODEL env or runtime config) > DEFAULT_AI_MODEL
+    // Model selection priority: config.model (from AGHAST_AI_MODEL env or runtime config) > DEFAULT_MODEL
     if (config.model) {
       this.model = config.model;
     }
@@ -166,7 +137,7 @@ export class ClaudeCodeProvider implements AIProvider {
     repositoryPath: string,
     logPrefix?: string,
     options?: { maxTurns?: number },
-  ): Promise<AIResponse> {
+  ): Promise<AgentResponse> {
     const queryFn = this._queryFn ?? (await import('@anthropic-ai/claude-agent-sdk')).query;
     const timer = createTimer();
     const prefix = logPrefix ? `${logPrefix} ` : '';
@@ -263,7 +234,7 @@ export class ClaudeCodeProvider implements AIProvider {
               /you've hit your limit|API Error:\s*429|rate.?limit.?exceeded/i.test(t),
             );
             if (rateLimitMatch) {
-              throw new FatalProviderError(`AI provider rate limit reached: ${rateLimitMatch}`);
+              throw new FatalProviderError(`Agent provider rate limit reached: ${rateLimitMatch}`);
             }
 
             // Detect authentication errors (401) — fail immediately, unrecoverable
@@ -271,7 +242,7 @@ export class ClaudeCodeProvider implements AIProvider {
               /API Error:\s*401/i.test(t),
             );
             if (authErrorMatch) {
-              throw new FatalProviderError(`AI provider authentication failed (401): ${authErrorMatch}`);
+              throw new FatalProviderError(`Agent provider authentication failed (401): ${authErrorMatch}`);
             }
 
             // Detect login required — fail immediately, unrecoverable without user action
@@ -279,7 +250,7 @@ export class ClaudeCodeProvider implements AIProvider {
               /not logged in/i.test(t),
             );
             if (loginRequiredMatch) {
-              throw new FatalProviderError(`AI provider not logged in: ${loginRequiredMatch}. Please authenticate before running scans.`);
+              throw new FatalProviderError(`Agent provider not logged in: ${loginRequiredMatch}. Please authenticate before running scans.`);
             }
 
             // Detect API errors surfaced as assistant text by the SDK
@@ -287,7 +258,7 @@ export class ClaudeCodeProvider implements AIProvider {
             if (apiErrorMatch) {
               consecutiveApiErrors++;
               if (consecutiveApiErrors >= MAX_API_ERROR_RETRIES) {
-                throw new Error(`AI provider API error (after ${MAX_API_ERROR_RETRIES} attempts): ${apiErrorMatch}`);
+                throw new Error(`Agent provider API error (after ${MAX_API_ERROR_RETRIES} attempts): ${apiErrorMatch}`);
               }
             } else {
               consecutiveApiErrors = 0;
@@ -332,7 +303,7 @@ export class ClaudeCodeProvider implements AIProvider {
           logProgress(TAG, `${prefix}Completed in ${timer.elapsedStr()} (${turnCount} turns, ${toolCallCount} tool calls)`);
         } else {
           const errorResult = message as { subtype: string; errors?: string[] };
-          errorMessage = errorResult.errors?.join('; ') ?? `AI provider error: ${errorResult.subtype}`;
+          errorMessage = errorResult.errors?.join('; ') ?? `Agent provider error: ${errorResult.subtype}`;
           logProgress(TAG, `${prefix}Failed: ${errorResult.subtype} (${timer.elapsedStr()})`);
         }
       }
@@ -347,7 +318,7 @@ export class ClaudeCodeProvider implements AIProvider {
     }
 
     if (!resultText && !structuredOutput && !errorMessage) {
-      throw new Error('AI provider returned no result');
+      throw new Error('Agent provider returned no result');
     }
 
     logDebug(TAG, `${prefix}Result: ${resultText.length} chars`);
@@ -356,8 +327,8 @@ export class ClaudeCodeProvider implements AIProvider {
     }
 
     // Structured output from SDK is required - we enforce JSON schema output mode.
-    // The response parser (parseAIResponse) is kept in the codebase as a potential
-    // fallback for future use cases (e.g., alternative AI providers that don't support
+    // The response parser (parseAgentResponse) is kept in the codebase as a potential
+    // fallback for future use cases (e.g., alternative agent providers that don't support
     // structured output), but this provider always requires structured output.
     if (structuredOutput) {
       return { raw: resultText, parsed: structuredOutput, tokenUsage };
@@ -365,9 +336,9 @@ export class ClaudeCodeProvider implements AIProvider {
 
     // No fallback parsing - structured output is mandatory for this provider.
     // If needed in the future, uncomment:
-    // const parsed = parseAIResponse(resultText);
+    // const parsed = parseAgentResponse(resultText);
     // return { raw: resultText, parsed: parsed ?? undefined };
-    throw new Error('AI provider did not return structured output');
+    throw new Error('Agent provider did not return structured output');
   }
 
   async validateConfig(): Promise<boolean> {

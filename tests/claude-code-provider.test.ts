@@ -52,7 +52,7 @@ describe('ClaudeCodeProvider: API error handling', () => {
     await assert.rejects(
       () => provider.executeCheck('test prompt', '/tmp/repo'),
       (err: Error) => {
-        assert.match(err.message, /AI provider API error \(after 3 attempts\)/);
+        assert.match(err.message, /Agent provider API error \(after 3 attempts\)/);
         assert.match(err.message, /workspace limits reached/);
         return true;
       },
@@ -93,7 +93,7 @@ describe('ClaudeCodeProvider: API error handling', () => {
     await assert.rejects(
       () => provider.executeCheck('test prompt', '/tmp/repo'),
       (err: Error) => {
-        assert.match(err.message, /AI provider API error/);
+        assert.match(err.message, /Agent provider API error/);
         assert.match(err.message, /500 internal server error/);
         return true;
       },
@@ -342,7 +342,7 @@ describe('ClaudeCodeProvider: fatal error handling (401 auth)', () => {
       (err: Error) => {
         // Should be a regular Error (not FatalProviderError) since it's not a 401
         assert.ok(!(err instanceof FatalProviderError), 'Should NOT be FatalProviderError for 500');
-        assert.match(err.message, /AI provider API error \(after 3 attempts\)/);
+        assert.match(err.message, /Agent provider API error \(after 3 attempts\)/);
         assert.match(err.message, /500 internal server error/);
         return true;
       },

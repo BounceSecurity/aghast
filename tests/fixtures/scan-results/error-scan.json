@@ -16,7 +16,7 @@
       "status": "ERROR",
       "issuesFound": 0,
       "executionTime": 500,
-      "error": "AI provider returned malformed response",
+      "error": "Agent provider returned malformed response",
       "rawAiResponse": "This is not valid JSON output"
     }
   ],
@@ -28,7 +28,7 @@
     "errorChecks": 1,
     "totalIssues": 0
   },
-  "aiProvider": {
+  "agentProvider": {
     "name": "claude-code",
     "models": ["claude-sonnet-4-5-20250929"]
   },

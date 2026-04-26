@@ -15,7 +15,7 @@ function makeResults(overrides: Partial<ScanResults> = {}): ScanResults {
     executionTime: 100,
     startTime: '2026-01-01T12:00:00.000Z',
     endTime: '2026-01-01T12:00:00.100Z',
-    aiProvider: { name: 'mock', models: ['mock'] },
+    agentProvider: { name: 'mock', models: ['mock'] },
     ...overrides,
   };
 }

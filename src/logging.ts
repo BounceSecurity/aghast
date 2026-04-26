@@ -88,19 +88,36 @@ export class ConsoleHandler implements LogHandler {
     if (entryPriority > this.priority) return;
 
     const levelTag = entry.level === 'info' ? '' : `[${entry.level}]`;
+    // Ensure message is always single-line
+    const message = entry.message.includes('\n')
+      ? `[base64] ${Buffer.from(entry.message, 'utf-8').toString('base64')}`
+      : entry.message;
+
     if (entry.data === undefined) {
-      console.log(`${entry.timestamp} [${entry.tag}]${levelTag} ${entry.message}`);
+      console.log(`${entry.timestamp} [${entry.tag}]${levelTag} ${message}`);
     } else {
       const formatted = typeof entry.data === 'string' ? entry.data : JSON.stringify(entry.data);
-      // Truncate at debug level for console readability (matching legacy behavior)
+      const isMultiline = formatted.includes('\n');
       if (entry.level === 'debug') {
-        const truncated = formatted.length > 200 ? formatted.slice(0, 200) + '...' : formatted;
-        console.log(`${entry.timestamp} [${entry.tag}]${levelTag} ${entry.message}: ${truncated}`);
+        // Truncate at debug level for console readability
+        if (isMultiline) {
+          const b64 = Buffer.from(formatted, 'utf-8').toString('base64');
+          console.log(`${entry.timestamp} [${entry.tag}]${levelTag} ${message}: [base64] ${b64}`);
+        } else {
+          const truncated = formatted.length > 200 ? formatted.slice(0, 200) + '...' : formatted;
+          console.log(`${entry.timestamp} [${entry.tag}]${levelTag} ${message}: ${truncated}`);
+        }
       } else if (entry.level === 'trace') {
-        // Trace: full data, newline-separated (matching legacy logDebugFull)
-        console.log(`${entry.timestamp} [${entry.tag}]${levelTag} ${entry.message}:\n${formatted}`);
+        // Trace: always base64-encode data
+        const b64 = Buffer.from(formatted, 'utf-8').toString('base64');
+        console.log(`${entry.timestamp} [${entry.tag}]${levelTag} ${message}: [base64] ${b64}`);
       } else {
-        console.log(`${entry.timestamp} [${entry.tag}]${levelTag} ${entry.message}: ${formatted}`);
+        if (isMultiline) {
+          const b64 = Buffer.from(formatted, 'utf-8').toString('base64');
+          console.log(`${entry.timestamp} [${entry.tag}]${levelTag} ${message}: [base64] ${b64}`);
+        } else {
+          console.log(`${entry.timestamp} [${entry.tag}]${levelTag} ${message}: ${formatted}`);
+        }
       }
     }
   }
@@ -140,11 +157,20 @@ export class FileHandler implements LogHandler {
 
     const levelTag = `[${entry.level}]`;
     let line: string;
+    const message = entry.message.includes('\n')
+      ? `[base64] ${Buffer.from(entry.message, 'utf-8').toString('base64')}`
+      : entry.message;
+
     if (entry.data === undefined) {
-      line = `${entry.timestamp} [${entry.tag}]${levelTag} ${entry.message}`;
+      line = `${entry.timestamp} [${entry.tag}]${levelTag} ${message}`;
     } else {
       const formatted = typeof entry.data === 'string' ? entry.data : JSON.stringify(entry.data);
-      line = `${entry.timestamp} [${entry.tag}]${levelTag} ${entry.message}: ${formatted}`;
+      if (entry.level === 'trace' || formatted.includes('\n')) {
+        const b64 = Buffer.from(formatted, 'utf-8').toString('base64');
+        line = `${entry.timestamp} [${entry.tag}]${levelTag} ${message}: [base64] ${b64}`;
+      } else {
+        line = `${entry.timestamp} [${entry.tag}]${levelTag} ${message}: ${formatted}`;
+      }
     }
     this.stream.write(line + '\n');
   }

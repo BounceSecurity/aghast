@@ -13,7 +13,7 @@
 export interface CheckTypeDescriptor {
   /** The string value used in check definitions. */
   readonly type: string;
-  /** Whether the check requires an AI provider. */
+  /** Whether the check requires AI analysis. */
   readonly needsAI: boolean;
   /** Whether the check requires an instructions markdown file. */
   readonly needsInstructions: boolean;

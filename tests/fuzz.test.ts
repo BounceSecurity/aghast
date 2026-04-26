@@ -10,7 +10,7 @@ import assert from 'node:assert/strict';
 import fc from 'fast-check';
 import { resolve, sep, join } from 'node:path';
 
-import { parseAIResponse } from '../src/response-parser.js';
+import { parseAgentResponse } from '../src/response-parser.js';
 import { parseSARIF, deduplicateTargets, limitTargets } from '../src/sarif-parser.js';
 import {
   sanitizeUrl,
@@ -154,11 +154,11 @@ const errorCodeArb: fc.Arbitrary<ErrorCode> = fc.record({
 // =========================================================================
 
 describe('fuzz: external input parsers', () => {
-  describe('parseAIResponse', () => {
+  describe('parseAgentResponse', () => {
     it('never crashes on arbitrary strings', () => {
       fc.assert(
         fc.property(fc.string(), (input) => {
-          const result = parseAIResponse(input);
+          const result = parseAgentResponse(input);
           assert.ok(result === undefined || (typeof result === 'object' && Array.isArray(result.issues)));
         }),
       );
@@ -167,7 +167,7 @@ describe('fuzz: external input parsers', () => {
     it('never crashes on arbitrary JSON', () => {
       fc.assert(
         fc.property(fc.json(), (input) => {
-          const result = parseAIResponse(input);
+          const result = parseAgentResponse(input);
           assert.ok(result === undefined || (typeof result === 'object' && Array.isArray(result.issues)));
         }),
       );
@@ -177,7 +177,7 @@ describe('fuzz: external input parsers', () => {
       fc.assert(
         fc.property(checkResponseArb, (response) => {
           const raw = JSON.stringify(response);
-          const result = parseAIResponse(raw);
+          const result = parseAgentResponse(raw);
           if (result !== undefined) {
             assert.ok(Array.isArray(result.issues));
             for (const issue of result.issues) {
@@ -195,9 +195,9 @@ describe('fuzz: external input parsers', () => {
       fc.assert(
         fc.property(checkResponseArb, (response) => {
           const raw = JSON.stringify(response);
-          const first = parseAIResponse(raw);
+          const first = parseAgentResponse(raw);
           if (first !== undefined) {
-            const second = parseAIResponse(JSON.stringify(first));
+            const second = parseAgentResponse(JSON.stringify(first));
             assert.deepStrictEqual(second, first);
           }
         }),

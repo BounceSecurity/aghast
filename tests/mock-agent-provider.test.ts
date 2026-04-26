@@ -1,25 +1,25 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  MockAIProvider,
+  MockAgentProvider,
   createPassProvider,
   createFailProvider,
   createMalformedProvider,
   createTimeoutProvider,
   createAuthErrorProvider,
   createDelayedProvider,
-} from './mocks/mock-ai-provider.js';
+} from './mocks/mock-agent-provider.js';
 
-describe('MockAIProvider', () => {
-  it('implements AIProvider interface', async () => {
-    const provider = new MockAIProvider();
+describe('MockAgentProvider', () => {
+  it('implements AgentProvider interface', async () => {
+    const provider = new MockAgentProvider();
     assert.equal(typeof provider.initialize, 'function');
     assert.equal(typeof provider.executeCheck, 'function');
     assert.equal(typeof provider.validateConfig, 'function');
   });
 
   it('tracks initialization state', async () => {
-    const provider = new MockAIProvider();
+    const provider = new MockAgentProvider();
     assert.equal(provider.initialized, false);
     await provider.initialize({ apiKey: 'test-key' });
     assert.equal(provider.initialized, true);
@@ -110,7 +110,7 @@ describe('factory: createDelayedProvider', () => {
   });
 });
 
-describe('MockAIProvider.setResponse', () => {
+describe('MockAgentProvider.setResponse', () => {
   it('changes response between calls', async () => {
     const provider = createPassProvider();
 
@@ -130,7 +130,7 @@ describe('MockAIProvider.setResponse', () => {
   });
 });
 
-describe('MockAIProvider.setRawResponse', () => {
+describe('MockAgentProvider.setRawResponse', () => {
   it('switches to raw mode', async () => {
     const provider = createPassProvider();
     provider.setRawResponse('garbage');
@@ -140,7 +140,7 @@ describe('MockAIProvider.setRawResponse', () => {
   });
 });
 
-describe('MockAIProvider.setError', () => {
+describe('MockAgentProvider.setError', () => {
   it('switches to error mode', async () => {
     const provider = createPassProvider();
     provider.setError(new Error('boom'));

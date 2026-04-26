@@ -6,7 +6,7 @@
  * the scanner. Single source of truth — do not duplicate these literals elsewhere.
  *
  * (Provider and model defaults live alongside their respective registries:
- *  `DEFAULT_PROVIDER_NAME` in `provider-registry.ts`, `DEFAULT_AI_MODEL` in `types.ts`.)
+ *  `DEFAULT_PROVIDER_NAME` in `provider-registry.ts`, `DEFAULT_MODEL` in `types.ts`.)
  */
 
 /** Default output format for scan reports. */

@@ -13,8 +13,8 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 test('loadRuntimeConfig: valid config file', async () => {
   const validDir = resolve(__dirname, 'fixtures', 'runtime-config', 'valid-dir');
   const config = await loadRuntimeConfig(validDir);
-  assert.equal(config.aiProvider?.name, 'claude-code');
-  assert.equal(config.aiProvider?.model, 'claude-opus-4-6');
+  assert.equal(config.agentProvider?.name, 'claude-code');
+  assert.equal(config.agentProvider?.model, 'claude-opus-4-6');
 });
 
 test('loadRuntimeConfig: file absent returns empty object', async () => {
@@ -39,10 +39,10 @@ test('loadRuntimeConfig: malformed JSON throws error', async () => {
 test('loadRuntimeConfig: explicitPath parameter overrides default', async () => {
   const validPath = resolve(__dirname, 'fixtures', 'runtime-config', 'valid.json');
   const config = await loadRuntimeConfig('/unused', validPath);
-  assert.equal(config.aiProvider?.name, 'claude-code');
+  assert.equal(config.agentProvider?.name, 'claude-code');
 });
 
-test('loadRuntimeConfig: rejects aiProvider as a non-object', async () => {
+test('loadRuntimeConfig: rejects agentProvider as a non-object', async () => {
   const badTypesPath = resolve(__dirname, 'fixtures', 'runtime-config', 'bad-types.json');
   await assert.rejects(
     async () => {
@@ -50,9 +50,37 @@ test('loadRuntimeConfig: rejects aiProvider as a non-object', async () => {
     },
     (err: unknown) => {
       const error = err as Error;
-      return error.message.includes('"aiProvider" must be an object');
+      return error.message.includes('"agentProvider" must be an object');
     },
   );
+});
+
+test('loadRuntimeConfig: rejects legacy aiProvider key with rename hint', async () => {
+  const { writeFile: writeFileSync, unlink: unlinkSync } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const tmpPath = join(tmpdir(), `legacy-ai-provider-${process.pid}-${Date.now()}.json`);
+  await writeFileSync(
+    tmpPath,
+    JSON.stringify({ aiProvider: { name: 'claude-code', model: 'haiku' } }),
+    'utf-8',
+  );
+  try {
+    await assert.rejects(
+      async () => {
+        await loadRuntimeConfig('/unused', tmpPath);
+      },
+      (err: unknown) => {
+        const error = err as Error;
+        return (
+          error.message.includes('"aiProvider" has been renamed to "agentProvider"') &&
+          error.message.includes('0.5.0')
+        );
+      },
+    );
+  } finally {
+    await unlinkSync(tmpPath);
+  }
 });
 
 test('loadRuntimeConfig: rejects failOnCheckFailure as a non-boolean', async () => {

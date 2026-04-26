@@ -1,7 +1,8 @@
 /**
- * AI response parser.
- * Parses raw AI responses into CheckResponse format (spec Appendix A.3b).
- * Handles malformed JSON, missing fields, and edge cases.
+ * Response parser.
+ * Parses the raw text body of an agent provider's response into
+ * CheckResponse format (spec Appendix A.3b). Handles malformed JSON,
+ * missing fields, and edge cases.
  */
 
 import type { CheckResponse, AIIssue, DataFlowStep } from './types.js';
@@ -10,10 +11,11 @@ import { logDebug } from './logging.js';
 const TAG = 'parser';
 
 /**
- * Attempt to parse a raw AI response string into a CheckResponse.
- * Returns undefined if the response is not valid JSON or lacks the expected structure.
+ * Attempt to parse the raw text body of an agent provider's response
+ * into a CheckResponse. Returns undefined if the response is not valid
+ * JSON or lacks the expected structure.
  */
-export function parseAIResponse(raw: string): CheckResponse | undefined {
+export function parseAgentResponse(raw: string): CheckResponse | undefined {
   logDebug(TAG, `Parsing response: ${raw.length} chars`);
 
   const tryParse = (text: string): unknown => {

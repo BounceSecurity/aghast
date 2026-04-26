@@ -18,13 +18,14 @@ For each code unit, ask yourself:
 - What can an attacker control? (request body, URL params, headers, query strings)
 - Where does that input end up? (database queries, HTTP requests, file operations, authorization decisions)
 - What guarantees does the code assume but not enforce? (atomicity, ownership, trust boundaries, data types)
-- Are multi-step operations safe if executed concurrently by multiple users?
+- Are multi-step operations safe if executed concurrently by multiple users? (check-then-act on shared state — stock, balances, quotas, uniqueness — without `FOR UPDATE`, transactions, or atomic conditional updates is a TOCTOU race)
+- Are security-sensitive values (password reset tokens, session IDs, API keys, CSRF tokens, invitation codes, one-time codes) generated with cryptographically secure randomness? `Math.random()`, `Date.now()`, timestamps, or PIDs are predictable and unsafe for anything that gates authentication or authorization.
 
 BEFORE REPORTING — VALIDATE EACH FINDING:
 
 Before including any issue in your response, you MUST be able to answer YES to all of these:
-1. Can I construct a specific HTTP request (or sequence of requests) that triggers this vulnerability?
-2. After the exploit, what specific harm has occurred? Name ONE of: unauthorized data accessed, unauthorized action performed, authentication/authorization bypassed, server made to contact an attacker-controlled or internal endpoint, arbitrary code/query executed. If the harm is only "bad data in a database" (wrong types, negative numbers) with no further security consequence in this codebase, it is NOT a finding.
+1. Can I construct a specific HTTP request (or sequence of requests) that triggers this vulnerability? For race conditions, two or more concurrent requests count as a valid "sequence" — you do not need a single-request exploit.
+2. After the exploit, what specific harm has occurred? Name ONE of: unauthorized data accessed, unauthorized action performed, authentication/authorization bypassed (including via predictable security tokens that gate auth, e.g. reset tokens generated from `Math.random()`), server made to contact an attacker-controlled or internal endpoint, arbitrary code/query executed, or financial/inventory state corrupted in a way an attacker can exploit for value (e.g. overselling limited stock, double-spending balance, bypassing quota). Pure data-quality bugs (wrong types, missing length checks) with no security or value consequence are NOT findings.
 3. Does the exploit work against THIS codebase as written — including all middleware, route registrations, and existing validation? Do not ignore protections that exist outside the function body (e.g., middleware applied at route registration time).
 
 If you cannot answer YES to all three, do not report the issue.
@@ -36,6 +37,9 @@ Only report vulnerabilities that meet ALL of these criteria:
 - The vulnerability leads to a concrete security impact (data breach, unauthorized access, privilege escalation, code execution, etc.)
 - The vulnerability exists in the code AS WRITTEN — do not speculate about missing features, future code, or how the code might be used differently
 - The impact is demonstrated end-to-end in THIS codebase — not dependent on hypothetical downstream consumers of stored data
+
+EXCEPTION — predictable security tokens:
+The "end-to-end demonstration" and "no hypothetical downstream consumer" rules above DO NOT apply when code generates a value with a predictable source (`Math.random()`, `Date.now()`, timestamps, counters, non-CSPRNG hashes) AND the value's name or surrounding context indicates it functions as a credential or capability (reset/recovery tokens, session IDs, API keys, OTPs, magic links, CSRF tokens, invitation codes, etc.). Naming and intent are sufficient evidence — you do not need to find the consumer in this codebase. Report at the generation site; treat the harm as "authentication/authorization bypassed via predictable token". This exception applies only to values whose purpose is to authenticate a user, authorise an action, or establish a recoverable session — NOT to identifiers used purely for logging, tracing, or UI rendering, even if their names contain "token", "id", or "key".
 
 Do NOT report:
 - Missing input validation that has no security impact (e.g., missing length checks, type checks, or negative number checks unless they lead to a specific exploit like bypassing authorization)

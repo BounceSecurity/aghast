@@ -28,6 +28,7 @@ export const repoFilteredConfigDir = resolve(testDir, 'fixtures', 'cli-configs',
 export const disabledConfigDir = resolve(testDir, 'fixtures', 'cli-configs', 'with-disabled');
 export const invalidConfigDir = resolve(testDir, 'fixtures', 'cli-configs', 'invalid');
 export const multiTargetConfigDir = resolve(testDir, 'fixtures', 'cli-configs', 'multi-target');
+export const multiTargetCappedConfigDir = resolve(testDir, 'fixtures', 'cli-configs', 'multi-target-capped');
 export const mixedChecksConfigDir = resolve(testDir, 'fixtures', 'cli-configs', 'mixed-checks');
 export const flagCheckConfigDir = resolve(testDir, 'fixtures', 'cli-configs', 'flag-check');
 export const mixedResultsConfigDir = resolve(testDir, 'fixtures', 'cli-configs', 'mixed-results');

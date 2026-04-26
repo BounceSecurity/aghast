@@ -19,7 +19,7 @@ Six core components orchestrated by the Security Scanner:
 
 1. **Security Scanner** — Orchestrator that coordinates the scan workflow, executes checks, and aggregates results
 2. **Check Library** — Two-layer config: loads check registry from `checks-config.json` (Layer 1: id, repositories, enabled) and per-check definitions from `checks/<id>/<id>.json` (Layer 2: name, instructions, severity, checkTarget) within a config directory specified via `--config-dir`. Merges layers, filters by repository, loads markdown instructions from each check folder.
-3. **AI Provider** — Abstraction layer over LLM APIs (reference impl: Claude Code)
+3. **Agent Provider** — Abstraction layer over agent SDKs / harnesses that delegate to LLMs (reference impls: Claude Code, OpenCode)
 4. **Repository Analyzer** — Extracts Git metadata (remote URL, branch, commit) from target repos
 5. **Discovery Providers** — Pluggable target discovery system (`src/discovery.ts`): Semgrep, OpenAnt, and SARIF providers find code locations for targeted/static checks
 6. **Report Generator** — Produces `security_checks_results.json` (or `.sarif`) conforming to the `ScanResults` schema
@@ -43,11 +43,11 @@ Each targeted/static check specifies `checkTarget.discovery` (e.g., `semgrep`, `
 ## Testing
 
 - All tests use `node:test` and `node:assert` — no external test dependencies
-- AI provider must be mocked/stubbed in all tests — never depend on live API access
+- Agent provider must be mocked/stubbed in all tests — never depend on live API access
 - Tests must pass without `ANTHROPIC_API_KEY` set
 - Test fixtures live alongside tests: sample configs, markdown checks, AI responses, SARIF output
 - GitHub Actions CI runs on push to main and all PRs
-- The CLI supports `AGHAST_MOCK_AI=true` to use a mock AI provider (no API key needed), or `AGHAST_MOCK_AI=<path>` to supply a custom response fixture file
+- The CLI supports `AGHAST_MOCK_AI=true` to use a mock agent provider (no API key needed), or `AGHAST_MOCK_AI=<path>` to supply a custom response fixture file
 - `AGHAST_MOCK_SEMGREP=<path>` — Provide a SARIF file to use instead of running Semgrep (for testing targeted/static checks without Semgrep installed)
 - `AGHAST_OPENANT_DATASET=<path>` — Provide a pre-generated OpenAnt dataset JSON file to use instead of invoking `openant parse`. Used for tests (so suites pass without OpenAnt installed) and supports production use cases like caching the dataset across runs or splitting OpenAnt into a separate CI job
 - `AGHAST_SKIP_SEMGREP_TESTS=true` — Skip real Semgrep integration tests (used in CI main job; Semgrep tests run in a separate CI job)
@@ -74,7 +74,7 @@ The unified entry point is `src/cli.ts` which routes to `runScan()` (from `src/i
 - `npm run build` — Compile TypeScript
 - `npm run lint` — Run ESLint on src/ and tests/
 - `npm run lint:fix` — Run ESLint with auto-fix on src/ and tests/
-- `npm run scan -- <repo-path> --config-dir <path> [--output <path>] [--output-format json|sarif] [--fail-on-check-failure] [--debug] [--log-level <level>] [--log-file <path>] [--log-type <type>] [--model <model>] [--ai-provider <name>] [--generic-prompt <file>] [--runtime-config <path>]` — Run checks (`--config-dir` required, default format: `json`, default output: `<repo-path>/security_checks_results.<ext>`, exit 1 on FAIL/ERROR with `--fail-on-check-failure`, `--debug` is shorthand for `--log-level debug`, `--log-file` writes all logs to a file at trace level). Discovery methods (Semgrep, OpenAnt, SARIF) are configured per-check via `checkTarget.discovery` in check definitions. Precedence: CLI flags > env vars > runtime config > defaults.
+- `npm run scan -- <repo-path> --config-dir <path> [--output <path>] [--output-format json|sarif] [--fail-on-check-failure] [--debug] [--log-level <level>] [--log-file <path>] [--log-type <type>] [--model <model>] [--agent-provider <name>] [--generic-prompt <file>] [--runtime-config <path>]` — Run checks (`--config-dir` required, default format: `json`, default output: `<repo-path>/security_checks_results.<ext>`, exit 1 on FAIL/ERROR with `--fail-on-check-failure`, `--debug` is shorthand for `--log-level debug`, `--log-file` writes all logs to a file at trace level). Discovery methods (Semgrep, OpenAnt, SARIF) are configured per-check via `checkTarget.discovery` in check definitions. Precedence: CLI flags > env vars > runtime config > defaults.
 - `npm run new-check -- --config-dir <path> [--id <id> --name <name> ...]` — Interactive CLI to scaffold a new check (creates check folder with `<id>.json`, `<id>.md`, optional `<id>.yaml` Semgrep rule + tests; appends to `checks-config.json`). Bootstraps config directory if it doesn't exist.
 - `npm run build-config -- --config-dir <path> [--non-interactive] [--provider <name>] [--model <id>] [--output-format json|sarif] [--log-level <level>] [--clear <field>] ...` — Build or edit `runtime-config.json`. Interactive when no value flags are given; non-interactive when `--non-interactive` is passed (or when all needed values come from flags). Loads existing config so omitted fields stay untouched. Models come from `provider.listModels()`: the Claude Code provider tries `@anthropic-ai/sdk` `models.list()` first when `ANTHROPIC_API_KEY` is set (full canonical list with display names), then falls back to `claude-agent-sdk` `supportedModels()` (curated 3 aliases — works with `AGHAST_LOCAL_CLAUDE=true`).
 
@@ -95,7 +95,7 @@ npm run scan -- /path/to/target --config-dir checks-config
 
 ## Environment Variables
 
-- `ANTHROPIC_API_KEY` — Required for Claude Code AI provider (unless `AGHAST_LOCAL_CLAUDE=true`)
+- `ANTHROPIC_API_KEY` — Required for Claude Code agent provider (unless `AGHAST_LOCAL_CLAUDE=true`)
 - `AGHAST_CONFIG_DIR` — Default config directory (CLI `--config-dir` takes precedence)
 - `AGHAST_AI_MODEL` — AI model override (CLI `--model` takes precedence)
 - `AGHAST_GENERIC_PROMPT` — Generic prompt template filename (CLI `--generic-prompt` takes precedence)
@@ -104,7 +104,7 @@ npm run scan -- /path/to/target --config-dir checks-config
 - `AGHAST_LOG_FILE` — Log file path (CLI `--log-file` takes precedence)
 - `AGHAST_LOG_TYPE` — Log file handler type (CLI `--log-type` takes precedence, default: `file`)
 - `AGHAST_LOCAL_CLAUDE` — Set to `true` to use local Claude instead of API
-- `AGHAST_MOCK_AI` — Enables mock AI provider. Set to `true` for default `{"issues":[]}` response, or set to a file path
+- `AGHAST_MOCK_AI` — Enables mock agent provider. Set to `true` for default `{"issues":[]}` response, or set to a file path
 - `AGHAST_MOCK_SEMGREP` — Path to SARIF file for mock Semgrep output
 - `AGHAST_OPENANT_DATASET` — Path to a pre-generated OpenAnt dataset JSON file (skips invoking `openant parse`)
 - `AGHAST_DEBUG_PRINTPROMPT` — Print full prompts (requires `--debug`)
@@ -125,7 +125,9 @@ Precedence: CLI flags > environment variables > runtime config > built-in defaul
 - `src/discoveries/semgrep-discovery.ts` — Semgrep discovery provider (runs Semgrep rules, parses SARIF output into targets)
 - `src/discoveries/openant-discovery.ts` — OpenAnt discovery provider (runs OpenAnt to extract code units with call graph context)
 - `src/discoveries/sarif-discovery.ts` — SARIF discovery provider (reads external SARIF files for AI validation)
-- `src/claude-code-provider.ts` — Claude Code AI provider implementation using `@anthropic-ai/claude-agent-sdk`
+- `src/claude-code-provider.ts` — Claude Code agent provider implementation using `@anthropic-ai/claude-agent-sdk`
+- `src/opencode-provider.ts` — OpenCode agent provider implementation using `@opencode-ai/sdk` (supports 75+ LLM providers)
+- `src/provider-utils.ts` — Shared provider utilities (OUTPUT_SCHEMA for structured output)
 - `src/prompt-template.ts` — Prompt builder (prepends generic instructions to check markdown)
 - `src/snippet-extractor.ts` — Code snippet extractor (extracts lines from source files for issue enrichment)
 - `src/sarif-parser.ts` — SARIF 2.1.0 parser (`parseSARIF`, `deduplicateTargets`, `limitTargets`)
@@ -163,7 +165,7 @@ Precedence: CLI flags > environment variables > runtime config > built-in defaul
 
 ## Conventions
 
-- **Error codes**: All CLI error paths must use codes from `src/error-codes.ts` via `formatError()`. Numbering scheme: E1xxx=CLI parsing, E2xxx=configuration, E3xxx=AI provider, E4xxx=repository/target validation, E5xxx=Semgrep, E9xxx=internal/fatal.
+- **Error codes**: All CLI error paths must use codes from `src/error-codes.ts` via `formatError()`. Numbering scheme: E1xxx=CLI parsing, E2xxx=configuration, E3xxx=agent provider, E4xxx=repository/target validation, E5xxx=Semgrep, E9xxx=internal/fatal.
 - **Color output**: Use helpers from `src/colors.ts` for colored output, never raw ANSI codes. The `NO_COLOR` env var is respected automatically via `picocolors`.
 
 ## Development Workflow

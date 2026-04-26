@@ -26,7 +26,7 @@ aghast scan <repo-path> --config-dir <path> [options]
 | `--log-file <path>` | Write all log output to a file (captures at `trace` level by default) |
 | `--log-type <type>` | Log file handler type (default: `file`). Pluggable; new types can be added |
 | `--model <model>` | AI model override (e.g. `claude-sonnet-4-20250514`) |
-| `--ai-provider <name>` | AI provider name (default: `claude-code`) |
+| `--agent-provider <name>` | Agent provider name (default: `claude-code`) |
 | `--generic-prompt <file>` | Generic prompt template filename |
 | `--runtime-config <path>` | Path to runtime config file. Useful for setting persistent defaults instead of repeating CLI flags |
 
@@ -47,6 +47,28 @@ Run `aghast scan --help` for the full list of options.
 | `AGHAST_MOCK_SEMGREP` | Path to a SARIF file to use instead of running Semgrep (for testing `semgrep` discovery without Semgrep installed) |
 | `AGHAST_OPENANT_DATASET` | Path to a pre-generated OpenAnt dataset JSON file. When set, aghast uses this dataset directly instead of invoking `openant parse`. Useful for caching the dataset across multiple scans, splitting OpenAnt and aghast into separate CI jobs, running aghast where Python 3.11+ isn't available, or stubbing OpenAnt output in tests |
 | `NO_COLOR` | Set to `1` to disable colored CLI output ([standard](https://no-color.org/)) |
+
+## Agent Providers
+
+aghast supports multiple agent providers via the `--agent-provider` flag or `agentProvider.name` in runtime config.
+
+| Provider | `--agent-provider` | `--model` format | Prerequisites |
+|----------|--------------------|------------------|---------------|
+| Claude Code (default) | `claude-code` | Model name (e.g. `haiku`, `sonnet`) | `ANTHROPIC_API_KEY` env var |
+| OpenCode | `opencode` | `providerID/modelID` (e.g. `opencode/big-pickle`, `cursor-acp/composer-2-fast`) | [OpenCode CLI](https://opencode.ai) installed and configured |
+
+### Using OpenCode
+
+The OpenCode provider delegates to any of the 75+ LLM providers supported by [OpenCode](https://opencode.ai). To use it:
+
+1. Install OpenCode: follow the instructions at https://opencode.ai
+2. Configure a provider: run `opencode` and use `/connect` to set up credentials
+3. Run a scan:
+   ```bash
+   aghast scan ./my-repo --config-dir ./checks --agent-provider opencode --model opencode/big-pickle
+   ```
+
+The default model is `opencode/big-pickle`. Use the `providerID/modelID` format to select any configured provider and model.
 
 ## Runtime Configuration
 

@@ -1,11 +1,11 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseAIResponse } from '../src/response-parser.js';
+import { parseAgentResponse } from '../src/response-parser.js';
 
-describe('parseAIResponse', () => {
+describe('parseAgentResponse', () => {
   it('parses valid PASS response (empty issues)', () => {
     const raw = JSON.stringify({ issues: [] });
-    const result = parseAIResponse(raw);
+    const result = parseAgentResponse(raw);
     assert.ok(result);
     assert.deepEqual(result.issues, []);
   });
@@ -27,7 +27,7 @@ describe('parseAIResponse', () => {
         },
       ],
     });
-    const result = parseAIResponse(raw);
+    const result = parseAgentResponse(raw);
     assert.ok(result);
     assert.equal(result.issues.length, 2);
     assert.equal(result.issues[0].file, 'src/api/users.ts');
@@ -38,7 +38,7 @@ describe('parseAIResponse', () => {
   });
 
   it('returns undefined for malformed JSON', () => {
-    const result = parseAIResponse('This is not valid JSON at all.');
+    const result = parseAgentResponse('This is not valid JSON at all.');
     assert.equal(result, undefined);
   });
 
@@ -46,23 +46,23 @@ describe('parseAIResponse', () => {
     const raw = JSON.stringify({
       findings: [{ location: 'src/api/users.ts', line: 45 }],
     });
-    const result = parseAIResponse(raw);
+    const result = parseAgentResponse(raw);
     assert.equal(result, undefined);
   });
 
   it('returns undefined when issues is not an array', () => {
     const raw = JSON.stringify({ issues: 'not an array' });
-    const result = parseAIResponse(raw);
+    const result = parseAgentResponse(raw);
     assert.equal(result, undefined);
   });
 
   it('returns undefined for non-object JSON', () => {
-    const result = parseAIResponse('"just a string"');
+    const result = parseAgentResponse('"just a string"');
     assert.equal(result, undefined);
   });
 
   it('returns undefined for null JSON', () => {
-    const result = parseAIResponse('null');
+    const result = parseAgentResponse('null');
     assert.equal(result, undefined);
   });
 
@@ -73,7 +73,7 @@ describe('parseAIResponse', () => {
         { file: 'src/app.ts', startLine: 1, endLine: 5, description: 'valid issue' },
       ],
     });
-    const result = parseAIResponse(raw);
+    const result = parseAgentResponse(raw);
     assert.ok(result);
     assert.equal(result.issues.length, 1);
     assert.equal(result.issues[0].file, 'src/app.ts');
@@ -86,7 +86,7 @@ describe('parseAIResponse', () => {
         { file: 'src/other.ts', startLine: 10, endLine: 15, description: 'valid' },
       ],
     });
-    const result = parseAIResponse(raw);
+    const result = parseAgentResponse(raw);
     assert.ok(result);
     assert.equal(result.issues.length, 1);
     assert.equal(result.issues[0].file, 'src/other.ts');
@@ -100,7 +100,7 @@ describe('parseAIResponse', () => {
         { file: 'src/other.ts', startLine: 1, endLine: 10, description: 'valid' },
       ],
     });
-    const result = parseAIResponse(raw);
+    const result = parseAgentResponse(raw);
     assert.ok(result);
     assert.equal(result.issues.length, 1);
     assert.equal(result.issues[0].file, 'src/other.ts');
@@ -124,7 +124,7 @@ describe('parseAIResponse', () => {
         },
       ],
     });
-    const result = parseAIResponse(raw);
+    const result = parseAgentResponse(raw);
     assert.ok(result);
     assert.equal(result.issues.length, 1);
     assert.equal(result.issues[0].file, 'src/valid.ts');
@@ -136,7 +136,7 @@ describe('parseAIResponse', () => {
       summary: 'Found 1 issue.',
       analysisNotes: 'Focused on auth patterns.',
     });
-    const result = parseAIResponse(raw);
+    const result = parseAgentResponse(raw);
     assert.ok(result);
     assert.equal(result.summary, 'Found 1 issue.');
     assert.equal(result.analysisNotes, 'Focused on auth patterns.');
@@ -148,7 +148,7 @@ describe('parseAIResponse', () => {
       summary: 42,
       analysisNotes: { nested: true },
     });
-    const result = parseAIResponse(raw);
+    const result = parseAgentResponse(raw);
     assert.ok(result);
     assert.equal(result.summary, undefined);
     assert.equal(result.analysisNotes, undefined);
@@ -158,7 +158,7 @@ describe('parseAIResponse', () => {
     const raw = JSON.stringify({
       issues: ['string item', null, 42, { file: 'a.ts', startLine: 1, endLine: 5, description: 'ok' }],
     });
-    const result = parseAIResponse(raw);
+    const result = parseAgentResponse(raw);
     assert.ok(result);
     assert.equal(result.issues.length, 1);
     assert.equal(result.issues[0].file, 'a.ts');
@@ -177,7 +177,7 @@ describe('parseAIResponse', () => {
         ],
       }],
     });
-    const result = parseAIResponse(raw);
+    const result = parseAgentResponse(raw);
     assert.ok(result);
     assert.equal(result.issues.length, 1);
     assert.ok(result.issues[0].dataFlow);
@@ -204,7 +204,7 @@ describe('parseAIResponse', () => {
         ],
       }],
     });
-    const result = parseAIResponse(raw);
+    const result = parseAgentResponse(raw);
     assert.ok(result);
     assert.equal(result.issues[0].dataFlow!.length, 2);
     assert.equal(result.issues[0].dataFlow![0].file, 'src/a.ts');
@@ -220,7 +220,7 @@ describe('parseAIResponse', () => {
         description: 'issue without data flow',
       }],
     });
-    const result = parseAIResponse(raw);
+    const result = parseAgentResponse(raw);
     assert.ok(result);
     assert.equal(result.issues[0].dataFlow, undefined);
   });
@@ -235,14 +235,14 @@ describe('parseAIResponse', () => {
         dataFlow: [],
       }],
     });
-    const result = parseAIResponse(raw);
+    const result = parseAgentResponse(raw);
     assert.ok(result);
     assert.equal(result.issues[0].dataFlow, undefined);
   });
 
   it('flagged:true on empty issues sets result.flagged', () => {
     const raw = JSON.stringify({ issues: [], flagged: true });
-    const result = parseAIResponse(raw);
+    const result = parseAgentResponse(raw);
     assert.ok(result);
     assert.equal(result.flagged, true);
     assert.deepEqual(result.issues, []);
@@ -253,7 +253,7 @@ describe('parseAIResponse', () => {
       issues: [{ file: 'src/a.ts', startLine: 1, endLine: 5, description: 'issue' }],
       flagged: true,
     });
-    const result = parseAIResponse(raw);
+    const result = parseAgentResponse(raw);
     assert.ok(result);
     assert.equal(result.flagged, true);
     assert.equal(result.issues.length, 1);
@@ -261,7 +261,7 @@ describe('parseAIResponse', () => {
 
   it('no flagged field → result.flagged is undefined', () => {
     const raw = JSON.stringify({ issues: [] });
-    const result = parseAIResponse(raw);
+    const result = parseAgentResponse(raw);
     assert.ok(result);
     assert.equal(result.flagged, undefined);
   });
