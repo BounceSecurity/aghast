@@ -46,7 +46,7 @@ export const openantDiscovery: TargetDiscovery = {
           endLine: origin.end_line,
           label: `[unit ${idx + 1}/${units.length}]`,
           promptEnrichment: formatUnitPromptSection(unit),
-          aiOptions: { maxTurns: 20 },
+          agentOptions: { maxTurns: 20 },
         };
       });
     } finally {

@@ -95,7 +95,7 @@ describe('build-config CLI', () => {
     ]);
     assert.equal(exitCode, 0);
     const written = JSON.parse(await readFile(join(tempDir, 'runtime-config.json'), 'utf-8'));
-    assert.equal(written.aiProvider.name, 'claude-code');
+    assert.equal(written.agentProvider.name, 'claude-code');
     assert.equal(written.reporting.outputFormat, 'sarif');
     assert.equal(written.logging.level, 'debug');
     assert.equal(written.failOnCheckFailure, true);
@@ -104,7 +104,7 @@ describe('build-config CLI', () => {
   it('preserves untouched fields when editing existing config', async () => {
     const target = join(tempDir, 'runtime-config.json');
     await writeFile(target, JSON.stringify({
-      aiProvider: { name: 'claude-code', model: 'sonnet' },
+      agentProvider: { name: 'claude-code', model: 'sonnet' },
       reporting: { outputFormat: 'json', outputDirectory: '/tmp/out' },
       failOnCheckFailure: false,
     }), 'utf-8');
@@ -116,7 +116,7 @@ describe('build-config CLI', () => {
     ]);
     assert.equal(exitCode, 0);
     const written = JSON.parse(await readFile(target, 'utf-8'));
-    assert.equal(written.aiProvider.model, 'sonnet', 'model preserved');
+    assert.equal(written.agentProvider.model, 'sonnet', 'model preserved');
     assert.equal(written.reporting.outputDirectory, '/tmp/out', 'outputDirectory preserved');
     assert.equal(written.reporting.outputFormat, 'sarif', 'format updated');
     assert.equal(written.failOnCheckFailure, false, 'bool preserved');
@@ -125,7 +125,7 @@ describe('build-config CLI', () => {
   it('--clear removes a field from existing config', async () => {
     const target = join(tempDir, 'runtime-config.json');
     await writeFile(target, JSON.stringify({
-      aiProvider: { name: 'claude-code', model: 'sonnet' },
+      agentProvider: { name: 'claude-code', model: 'sonnet' },
       reporting: { outputDirectory: '/tmp/out', outputFormat: 'json' },
     }), 'utf-8');
 
@@ -137,8 +137,8 @@ describe('build-config CLI', () => {
     ]);
     assert.equal(exitCode, 0);
     const written = JSON.parse(await readFile(target, 'utf-8'));
-    assert.equal(written.aiProvider.name, 'claude-code');
-    assert.equal(written.aiProvider.model, undefined, 'model cleared');
+    assert.equal(written.agentProvider.name, 'claude-code');
+    assert.equal(written.agentProvider.model, undefined, 'model cleared');
     assert.equal(written.reporting.outputDirectory, undefined, 'outputDirectory cleared');
     assert.equal(written.reporting.outputFormat, 'json', 'format preserved');
   });
@@ -266,7 +266,7 @@ describe('build-config CLI', () => {
     // validation is skipped via warning. Either way the config is written correctly.
     const target = join(tempDir, 'runtime-config.json');
     await writeFile(target, JSON.stringify({
-      aiProvider: { name: 'claude-code', model: 'sonnet' },
+      agentProvider: { name: 'claude-code', model: 'sonnet' },
     }), 'utf-8');
 
     const { exitCode, stderr } = await runCLI([
@@ -279,8 +279,8 @@ describe('build-config CLI', () => {
     assert.ok(stderr.includes('skipped model validation'),
       `expected warning that model validation was skipped, got stderr: ${stderr}`);
     const written = JSON.parse(await readFile(target, 'utf-8'));
-    assert.equal(written.aiProvider?.name, undefined, 'provider cleared');
-    assert.equal(written.aiProvider?.model, 'sonnet', 'model preserved');
+    assert.equal(written.agentProvider?.name, undefined, 'provider cleared');
+    assert.equal(written.agentProvider?.model, 'sonnet', 'model preserved');
   });
 
   it('--model without --provider preserves the value (validation against default provider) (F14)', async () => {
@@ -297,7 +297,7 @@ describe('build-config CLI', () => {
     assert.ok(stderr.includes('skipped model validation'),
       `expected warning that model validation was skipped, got stderr: ${stderr}`);
     const written = JSON.parse(await readFile(join(tempDir, 'runtime-config.json'), 'utf-8'));
-    assert.equal(written.aiProvider?.model, 'sonnet');
+    assert.equal(written.agentProvider?.model, 'sonnet');
   });
 
   it('AGHAST_CONFIG_DIR env var resolves the target path when no flag is given (F15)', async () => {

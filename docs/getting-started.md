@@ -14,7 +14,11 @@ This guide walks you through installing aghast and setting up your environment.
 - **Node.js 20+**
 - **[Semgrep Community Edition](https://semgrep.dev/docs/getting-started/)** (LGPL-2.1) - only required if your checks use `semgrep` discovery
 - **[OpenAnt](https://github.com/knostic/OpenAnt)** + **Python 3.11+** + **Go** (for building) - only required if your checks use `openant` discovery
-- **Anthropic API key** - required for AI-based checks (`repository` and `targeted` types; not needed for `static` checks)
+- **An agent provider** - required for AI-based checks (`repository` and `targeted` types; not needed for `static` checks). Pick one:
+  - An **Anthropic API key** for the default `claude-code` provider, or
+  - **[OpenCode](https://opencode.ai)** installed and authenticated for the `opencode` provider, which delegates to any of the 75+ LLM providers OpenCode supports.
+
+  See [Scanning → Agent Providers](scanning.md#agent-providers) for the full comparison.
 
 ## 1. Install aghast
 
@@ -28,13 +32,40 @@ To uninstall:
 npm uninstall -g @bouncesecurity/aghast
 ```
 
-## 2. Set up your API key
+## 2. Set up an agent provider
+
+Required for `repository` and `targeted` checks. Skip this step entirely if you only plan to run `static` checks.
+
+**Option A — Claude Code (default)**
 
 ```bash
 export ANTHROPIC_API_KEY=your-api-key
 ```
 
-This is required for `repository` and `targeted` checks. You can skip this step if you only plan to run `static` checks.
+Claude Code is the default provider, so no flag is needed at scan time. To override the model, pass `--model <name>` per scan (see [Scanning](scanning.md)) or pin a default as shown below.
+
+**Option B — OpenCode**
+
+Install OpenCode from [https://opencode.ai](https://opencode.ai), then run `opencode` and use `/connect` to configure credentials for at least one LLM provider. Then pick either per-scan flags or a persistent default:
+
+```bash
+# Per-scan:
+aghast scan <repo-path> --config-dir <path> --agent-provider opencode --model opencode/big-pickle
+```
+
+**Pin defaults (applies to both options).** Use `aghast build-config` to write a `runtime-config.json` in your config directory so future scans use your chosen provider and model without any flags:
+
+```bash
+aghast build-config --config-dir <path>            # interactive (covers both options)
+
+# Option A — pin claude-code with a specific model:
+aghast build-config --config-dir <path> --provider claude-code --model sonnet --non-interactive
+
+# Option B — pin opencode with a specific model:
+aghast build-config --config-dir <path> --provider opencode --model opencode/big-pickle --non-interactive
+```
+
+See [Configuration Reference → Runtime Configuration](configuration.md#runtime-configuration) for the full schema.
 
 ## What's next
 

@@ -1,6 +1,6 @@
 /**
  * Runtime configuration loader.
- * Loads runtime-config.json from the config directory to override AI provider and reporting settings.
+ * Loads runtime-config.json from the config directory to override agent provider and reporting settings.
  * Spec Section 8.1 & Appendix C.10.
  */
 
@@ -46,15 +46,21 @@ export async function loadRuntimeConfig(configDir?: string, explicitPath?: strin
   // Validate field types
   const obj = parsed as Record<string, unknown>;
   if (obj.aiProvider !== undefined) {
-    if (typeof obj.aiProvider !== 'object' || obj.aiProvider === null || Array.isArray(obj.aiProvider)) {
-      throw new Error(`Runtime config "${pathToLoad}": "aiProvider" must be an object`);
+    throw new Error(
+      `Runtime config "${pathToLoad}": "aiProvider" has been renamed to "agentProvider" in 0.5.0. ` +
+        `Update your runtime-config.json to use the new key.`,
+    );
+  }
+  if (obj.agentProvider !== undefined) {
+    if (typeof obj.agentProvider !== 'object' || obj.agentProvider === null || Array.isArray(obj.agentProvider)) {
+      throw new Error(`Runtime config "${pathToLoad}": "agentProvider" must be an object`);
     }
-    const ap = obj.aiProvider as Record<string, unknown>;
+    const ap = obj.agentProvider as Record<string, unknown>;
     if (ap.name !== undefined && typeof ap.name !== 'string') {
-      throw new Error(`Runtime config "${pathToLoad}": "aiProvider.name" must be a string`);
+      throw new Error(`Runtime config "${pathToLoad}": "agentProvider.name" must be a string`);
     }
     if (ap.model !== undefined && typeof ap.model !== 'string') {
-      throw new Error(`Runtime config "${pathToLoad}": "aiProvider.model" must be a string`);
+      throw new Error(`Runtime config "${pathToLoad}": "agentProvider.model" must be a string`);
     }
   }
   if (obj.reporting !== undefined) {

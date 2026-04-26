@@ -21,8 +21,8 @@ import { ERROR_CODES, formatError, formatFatalError } from './error-codes.js';
 import { loadRuntimeConfig } from './runtime-config.js';
 import { createProviderByName, getProviderNames, DEFAULT_PROVIDER_NAME } from './provider-registry.js';
 import { getAvailableFormats } from './formatters/index.js';
-import { getAvailableLogTypes, isValidLogLevel } from './logging.js';
-import { DEFAULT_AI_MODEL } from './types.js';
+import { getAvailableLogTypes, isValidLogLevel, getLogLevel, setLogLevel } from './logging.js';
+import { DEFAULT_MODEL } from './types.js';
 import type { RuntimeConfig, ProviderModelInfo } from './types.js';
 import {
   DEFAULT_OUTPUT_FORMAT,
@@ -36,7 +36,7 @@ import {
  *  Sourced from the same constants the scanner uses at runtime — no duplication. */
 const SCAN_DEFAULTS = {
   provider: DEFAULT_PROVIDER_NAME,
-  model: DEFAULT_AI_MODEL,
+  model: DEFAULT_MODEL,
   outputFormat: DEFAULT_OUTPUT_FORMAT,
   outputDirectory: '<repo-path>', // No constant — derived at runtime from the scanned repo path
   logLevel: DEFAULT_LOG_LEVEL,
@@ -139,7 +139,7 @@ Target file:
                                 are given)
 
 Field flags (any value provided here skips its prompt; closed lists are validated):
-  --provider <name>             AI provider name (e.g. claude-code)
+  --provider <name>             Agent provider name (e.g. claude-code)
   --model <id>                  Model ID. Must be one returned by the provider's
                                 listModels() (skip flag and use interactive mode to
                                 browse the live list).
@@ -198,8 +198,8 @@ function configToFlatDefaults(config: RuntimeConfig): {
   failOnCheckFailure?: boolean;
 } {
   return {
-    provider: config.aiProvider?.name,
-    model: config.aiProvider?.model,
+    provider: config.agentProvider?.name,
+    model: config.agentProvider?.model,
     outputFormat: config.reporting?.outputFormat,
     outputDirectory: config.reporting?.outputDirectory,
     logLevel: config.logging?.level,
@@ -225,9 +225,9 @@ interface BuiltValues {
 function buildConfig(values: BuiltValues): RuntimeConfig {
   const config: RuntimeConfig = {};
   if (values.provider !== undefined || values.model !== undefined) {
-    config.aiProvider = {};
-    if (values.provider !== undefined) config.aiProvider.name = values.provider;
-    if (values.model !== undefined) config.aiProvider.model = values.model;
+    config.agentProvider = {};
+    if (values.provider !== undefined) config.agentProvider.name = values.provider;
+    if (values.model !== undefined) config.agentProvider.model = values.model;
   }
   if (values.outputFormat !== undefined || values.outputDirectory !== undefined) {
     config.reporting = {};
@@ -247,16 +247,30 @@ function buildConfig(values: BuiltValues): RuntimeConfig {
 
 async function getProviderModels(providerName: string): Promise<readonly ProviderModelInfo[]> {
   const provider = createProviderByName(providerName);
-  // Honor the AIProvider contract — initialize() before any other method call.
-  // We intentionally pass an empty config so the provider falls back to env vars (e.g.
-  // ANTHROPIC_API_KEY). For providers like Claude Code that require either a key or
-  // AGHAST_LOCAL_CLAUDE=true, initialization may throw — let it propagate so callers
-  // can catch and degrade (e.g. fall back to free-text model entry).
-  await provider.initialize({});
-  if (!provider.listModels) {
-    return [];
+  // Silence provider progress logs ("Starting OpenCode server...", etc.) during the
+  // throwaway init/teardown used to fetch the model list. The user is in an interactive
+  // picker and doesn't need to see transient server lifecycle noise. Errors still surface
+  // via thrown exceptions, which the caller catches and reports.
+  const savedLevel = getLogLevel();
+  setLogLevel('silent');
+  try {
+    // Honor the AgentProvider contract — initialize() before any other method call.
+    // We intentionally pass an empty config so the provider falls back to env vars (e.g.
+    // ANTHROPIC_API_KEY). For providers like Claude Code that require either a key or
+    // AGHAST_LOCAL_CLAUDE=true, initialization may throw — let it propagate so callers
+    // can catch and degrade (e.g. fall back to free-text model entry).
+    await provider.initialize({});
+    if (!provider.listModels) {
+      return [];
+    }
+    return await provider.listModels();
+  } finally {
+    // Providers that start subprocesses/servers (e.g. OpenCode) must be cleaned up,
+    // or the process leaks resources until Node exits. cleanup() is documented to be
+    // safe on partially-initialized providers. No-op for providers without cleanup.
+    await provider.cleanup?.();
+    setLogLevel(savedLevel);
   }
-  return await provider.listModels();
 }
 
 /** Memoising fetcher — call once per (providerName, run) and re-use the result.
@@ -489,7 +503,7 @@ export async function runBuildConfig(args: string[]): Promise<void> {
     try {
       const providers = getProviderNames();
       if (flags.provider === undefined) {
-        result.provider = await helpers.askChoice('AI provider', providers, result.provider, SCAN_DEFAULTS.provider);
+        result.provider = await helpers.askChoice('Agent provider', providers, result.provider, SCAN_DEFAULTS.provider);
       }
 
       // Resolve provider for model listing — fall back to default only for the SDK call,

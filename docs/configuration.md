@@ -26,7 +26,7 @@ my-checks/
       aghast-sqli.yaml        # Semgrep rule (for checks with semgrep discovery)
       tests/                  # Semgrep rule test files
         aghast-sqli.py        # .py, .js, or .ts based on --language
-  runtime-config.json          # (Optional) AI provider & reporting overrides
+  runtime-config.json          # (Optional) Agent provider & reporting overrides
 ```
 
 Use `aghast new-check --config-dir <path>` to bootstrap this structure. If the directory doesn't exist, it will be created automatically.
@@ -164,6 +164,7 @@ Each check folder contains a JSON definition file with the check's metadata.
 | `checkTarget.sarifFile` | `string`                 | Yes***** | Path to SARIF file relative to target repository (*****only for `sarif` discovery) |
 | `checkTarget.maxTargets` | `number`               | No       | Limit number of targets/units to analyze |
 | `checkTarget.concurrency` | `number`              | No       | Max parallel AI analyses for targeted checks (default: 5) |
+| `checkTarget.maxIssuesPerTarget` | `number`       | No       | Cap on issues returned per target. When set, only the first N entries of the AI's `issues` array are kept (excess dropped with a debug log). Use for checks whose prompt expects a single combined issue per target and where the model occasionally splits or duplicates findings. Omit for unlimited. |
 | `checkTarget.openant` | `object`                  | No       | OpenAnt unit filter config (only for `openant` discovery). See below |
 | `checkTarget.openant.unitTypes` | `string[]`       | No       | Include only these unit types (e.g. `["function", "method"]`) |
 | `checkTarget.openant.excludeUnitTypes` | `string[]` | No      | Exclude these unit types (e.g. `["test", "dunder_method"]`) |
@@ -219,7 +220,7 @@ What this check looks for and why it matters.
 | `PASS` | No issues found. The code meets the check requirements |
 | `FAIL` | Issues found. The code does not meet the check requirements |
 | `FLAG` | AI is uncertain. Human review is recommended |
-| `ERROR` | The check could not be completed (e.g. AI provider error) |
+| `ERROR` | The check could not be completed (e.g. agent provider error) |
 
 When multiple targets are analyzed, the overall status is the worst: FAIL > FLAG > ERROR > PASS.
 
@@ -239,7 +240,7 @@ An optional `runtime-config.json` file in the config directory (or specified via
 
 ```json
 {
-  "aiProvider": {
+  "agentProvider": {
     "name": "claude-code",
     "model": "claude-sonnet-4-20250514"
   },
@@ -259,8 +260,8 @@ An optional `runtime-config.json` file in the config directory (or specified via
 
 | Field                           | Type       | Default | Description |
 |---------------------------------|------------|---------|-------------|
-| `aiProvider.name`               | `string`   | `claude-code` | AI provider name |
-| `aiProvider.model`              | `string`   | (provider default) | Model ID override |
+| `agentProvider.name`            | `string`   | `claude-code` | Agent provider name (`claude-code` or `opencode`) |
+| `agentProvider.model`           | `string`   | (provider default) | Model ID override. For `opencode`, use `providerID/modelID` format (e.g. `opencode/big-pickle`) |
 | `reporting.outputDirectory`     | `string`   | (target repo) | Directory for result files |
 | `reporting.outputFormat`        | `string`   | `json` | Output format: `json` or `sarif` |
 | `logging.logFile`               | `string`   | (none) | Path to log file. When set, all log output is written to this file |

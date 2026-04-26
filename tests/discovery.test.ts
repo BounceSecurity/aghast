@@ -5,6 +5,7 @@ import {
   registerDiscovery,
   getRegisteredDiscoveries,
   clearDiscoveryRegistry,
+  unregisterDiscovery,
 } from '../src/discovery.js';
 import type { TargetDiscovery } from '../src/discovery.js';
 
@@ -74,6 +75,24 @@ describe('Discovery registry', () => {
     assert.equal(getRegisteredDiscoveries().length, 1);
     clearDiscoveryRegistry();
     assert.equal(getRegisteredDiscoveries().length, 0);
+  });
+
+  it('unregisterDiscovery() removes a registered entry and returns true', () => {
+    registerDiscovery(stubDiscovery('temp'));
+    assert.equal(unregisterDiscovery('temp'), true);
+    assert.deepEqual(getRegisteredDiscoveries(), []);
+  });
+
+  it('unregisterDiscovery() returns false for an unknown name', () => {
+    assert.equal(unregisterDiscovery('does-not-exist'), false);
+  });
+
+  it('unregisterDiscovery() leaves other entries intact', () => {
+    registerDiscovery(stubDiscovery('keep-1'));
+    registerDiscovery(stubDiscovery('drop'));
+    registerDiscovery(stubDiscovery('keep-2'));
+    assert.equal(unregisterDiscovery('drop'), true);
+    assert.deepEqual(getRegisteredDiscoveries().sort(), ['keep-1', 'keep-2']);
   });
 });
 

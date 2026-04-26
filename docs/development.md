@@ -24,16 +24,23 @@ During development, you can use the npm scripts directly:
 ```bash
 npm run scan -- <repo-path> [options]
 npm run new-check -- [options]
+npm run build-config -- --config-dir <path> [options]  # Build or edit runtime-config.json
 npm run build
 npm test
 npm run test:coverage  # Run the unit test suite with Node.js coverage enabled
 npm run test:ci        # Run tests with spec and JUnit reporters (for CI)
 npm run test:semgrep   # Run real Semgrep integration tests (requires Semgrep installed)
+npm run test:openant   # Run real OpenAnt integration tests (requires OpenAnt + Python 3.11+)
+npm run test:opencode  # Run real OpenCode integration tests (requires OpenCode installed)
 npm run lint
 npm run lint:fix       # Run ESLint with auto-fix
 ```
 
+`npm run build-config` is the CLI users normally invoke as `aghast build-config`. It interactively edits `runtime-config.json` or accepts flags for scripted use — see [Runtime Configuration](configuration.md#runtime-configuration) for the full schema and flag list.
+
 `npm run test:coverage` uses Node.js built-in test coverage support (`--experimental-test-coverage`) so contributors can measure coverage without adding a separate coverage toolchain.
+
+The three `test:<tool>` scripts run real integration tests against external binaries and are **not** part of the default `npm test` suite — they require those tools installed locally. CI runs them in dedicated jobs.
 
 ## Releasing
 

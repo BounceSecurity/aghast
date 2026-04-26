@@ -1,0 +1,9 @@
+{
+  "checks": [
+    {
+      "id": "aghast-mt-sqli",
+      "repositories": [],
+      "enabled": true
+    }
+  ]
+}

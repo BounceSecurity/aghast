@@ -1,6 +1,6 @@
 /**
  * Output formatter interface for scan results.
- * Follows the AIProvider interface pattern from src/types.ts.
+ * Follows the AgentProvider interface pattern from src/types.ts.
  */
 
 import type { ScanResults } from '../types.js';

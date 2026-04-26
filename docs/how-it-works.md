@@ -212,7 +212,7 @@ When a static rule alone can definitively answer the question. For example, "doe
 4. Each finding is mapped directly to a security issue. The description comes from the discovery method's output (e.g., the Semgrep rule's `message` field)
 5. Issues are enriched with code snippets and written to the output file
 
-This check type doesn't require an AI provider API key, making it fast and free to run.
+This check type doesn't require an agent provider API key, making it fast and free to run.
 
 ---
 

@@ -6,23 +6,24 @@
 
 import { readFile } from 'node:fs/promises';
 import { randomBytes } from 'node:crypto';
-import { resolve, dirname } from 'node:path';
+import { resolve, relative, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildPrompt } from './prompt-template.js';
-import { parseAIResponse } from './response-parser.js';
+import { parseAgentResponse } from './response-parser.js';
 import { extractSnippet } from './snippet-extractor.js';
 import { analyzeRepository } from './repository-analyzer.js';
 import { logProgress, logDebug, createTimer } from './logging.js';
 import { CHECK_TYPE } from './check-types.js';
 import { getDiscovery, registerDiscovery } from './discovery.js';
+import { DEFAULT_PROVIDER_NAME } from './provider-registry.js';
 import { semgrepDiscovery } from './discoveries/semgrep-discovery.js';
 import { openantDiscovery } from './discoveries/openant-discovery.js';
 import { sarifDiscovery } from './discoveries/sarif-discovery.js';
 import type { DiscoveredTarget } from './discovery.js';
 import {
-  DEFAULT_AI_MODEL,
+  DEFAULT_MODEL,
   FatalProviderError,
-  type AIProvider,
+  type AgentProvider,
   type RepositoryInfo,
   type AIIssue,
   type SecurityIssue,
@@ -123,9 +124,9 @@ async function mapWithConcurrency<T, R>(
 export interface MultiScanOptions {
   repositoryPath: string;
   checks: Array<{ check: SecurityCheck; details: CheckDetails }>;
-  aiProvider?: AIProvider;
-  aiModelName?: string;
-  aiProviderName?: string;
+  agentProvider?: AgentProvider;
+  modelName?: string;
+  agentProviderName?: string;
   concurrency?: number;
   repositoryInfo?: RepositoryInfo;
   configDir?: string;
@@ -140,6 +141,57 @@ export function generateScanId(): string {
   const ts = now.toISOString().replace(/[-:T]/g, '').replace(/\..+/, '');
   const hash = randomBytes(3).toString('hex');
   return `scan-${ts}-${hash}`;
+}
+
+/**
+ * Normalize a file path to be relative to the repository root.
+ * Handles:
+ * - AI-generated paths that include the parent directory name(s) of the target repo
+ *   (e.g., "test-codebases/test-2-importantvalidations-easy/routes/execute.py" when
+ *   repo is at "checks-config/test-codebases/test-2-importantvalidations-easy")
+ * - Absolute paths: resolves and makes relative
+ * - Paths with repository prefix: strips the prefix
+ * - Relative paths: returns as-is with forward slashes
+ *
+ * This ensures consistent path formatting across all findings regardless
+ * of how the AI or discovery provider reported the path.
+ */
+function normalizeFilePath(filePath: string, repositoryPath: string): string {
+  const normalizedFile = filePath.replace(/\\/g, '/');
+
+  // If the path already looks relative and doesn't contain obvious parent refs,
+  // check if it starts with path segments that could be the parent of the repo.
+  // AI providers often return paths relative to a working directory that is
+  // different from the actual repository root, so we need to strip any
+  // prefix that leads to the repo path.
+  const normalizedRepo = resolve(repositoryPath);
+  const repoParts = normalizedRepo.replace(/\\/g, '/').split('/').filter(Boolean);
+
+  // Try stripping progressively longer trailing suffixes of the repo path from
+  // the front of the file path. AI providers often return paths relative to an
+  // ancestor directory, e.g. "test-codebases/test-2-easy/routes/run.py" when
+  // the repo is at "/abs/path/to/test-codebases/test-2-easy".
+  for (let i = 1; i <= repoParts.length; i++) {
+    const suffix = repoParts.slice(repoParts.length - i).join('/');
+    if (normalizedFile.startsWith(suffix + '/')) {
+      const candidate = normalizedFile.slice(suffix.length + 1);
+      const candidateResolved = resolve(normalizedRepo, candidate);
+      const candidateRelative = relative(normalizedRepo, candidateResolved).replace(/\\/g, '/');
+      if (!candidateRelative.startsWith('..')) {
+        return candidate;
+      }
+    }
+  }
+
+  // Fallback: resolve against repo and make relative
+  const resolved = resolve(normalizedRepo, normalizedFile);
+  const rel = relative(normalizedRepo, resolved).replace(/\\/g, '/');
+  if (!rel.startsWith('..')) {
+    return rel;
+  }
+
+  // Last resort: just normalize slashes
+  return normalizedFile;
 }
 
 // --- Single check execution helper ---
@@ -170,7 +222,7 @@ async function enrichIssue(
   const issue: SecurityIssue = {
     checkId,
     checkName,
-    file: aiIssue.file.replace(/\\/g, '/'),
+    file: normalizeFilePath(aiIssue.file, repositoryPath),
     startLine: aiIssue.startLine,
     endLine: aiIssue.endLine,
     description: aiIssue.description,
@@ -187,7 +239,7 @@ async function enrichIssue(
   if (aiIssue.dataFlow !== undefined) {
     issue.dataFlow = aiIssue.dataFlow.map((step) => ({
       ...step,
-      file: step.file.replace(/\\/g, '/'),
+      file: normalizeFilePath(step.file, repositoryPath),
     }));
   }
   return issue;
@@ -199,12 +251,12 @@ async function enrichIssue(
  */
 function applyPerCheckModel(
   check: SecurityCheck,
-  aiProvider: AIProvider | undefined,
+  agentProvider: AgentProvider | undefined,
   globalModelName: string | undefined,
 ): string | undefined {
-  if (!check.model || !aiProvider?.setModel) return undefined;
-  const previousModel = aiProvider.getModelName?.() ?? globalModelName;
-  aiProvider.setModel(check.model);
+  if (!check.model || !agentProvider?.setModel) return undefined;
+  const previousModel = agentProvider.getModelName?.() ?? globalModelName;
+  agentProvider.setModel(check.model);
   logProgress(TAG, `Using per-check model: ${check.model} (check: ${check.id})`);
   return previousModel;
 }
@@ -213,11 +265,11 @@ function applyPerCheckModel(
  * Restore the provider's model to the previous value after per-check override.
  */
 function restoreModel(
-  aiProvider: AIProvider | undefined,
+  agentProvider: AgentProvider | undefined,
   previousModel: string | undefined,
 ): void {
-  if (previousModel !== undefined && aiProvider?.setModel) {
-    aiProvider.setModel(previousModel);
+  if (previousModel !== undefined && agentProvider?.setModel) {
+    agentProvider.setModel(previousModel);
   }
 }
 
@@ -242,7 +294,7 @@ async function mapTargetToIssue(
   const issue: SecurityIssue = {
     checkId,
     checkName,
-    file: target.file.replace(/\\/g, '/'),
+    file: normalizeFilePath(target.file, repositoryPath),
     startLine: target.startLine,
     endLine: target.endLine,
     description: target.message || 'Static finding',
@@ -268,7 +320,7 @@ async function executeSingleCheck(
   checkName: string,
   checkInstructions: string,
   repositoryPath: string,
-  aiProvider: AIProvider | undefined,
+  agentProvider: AgentProvider | undefined,
   checkMetadata?: { severity?: string; confidence?: string },
   concurrency?: number,
   configDir?: string,
@@ -278,15 +330,15 @@ async function executeSingleCheck(
 
   // Route to targeted execution (discovery + AI analysis)
   if (check.checkTarget?.type === CHECK_TYPE.TARGETED) {
-    if (!aiProvider) {
-      throw new Error(`Check "${checkId}" requires an AI provider but none was configured`);
+    if (!agentProvider) {
+      throw new Error(`Check "${checkId}" requires an agent provider but none was configured`);
     }
     return executeTargetedCheck(
       check,
       checkName,
       checkInstructions,
       repositoryPath,
-      aiProvider,
+      agentProvider,
       checkMetadata,
       concurrency,
       configDir,
@@ -300,8 +352,8 @@ async function executeSingleCheck(
   }
 
   // Repository check (no discovery, AI analyzes whole repo)
-  if (!aiProvider) {
-    throw new Error(`Check "${checkId}" requires an AI provider but none was configured`);
+  if (!agentProvider) {
+    throw new Error(`Check "${checkId}" requires an agent provider but none was configured`);
   }
 
   logProgress(TAG, `Running check: ${checkName}`);
@@ -315,11 +367,11 @@ async function executeSingleCheck(
   const checkTimer = createTimer();
 
   try {
-    const aiResponse = await aiProvider.executeCheck(prompt, repositoryPath);
+    const agentResponse = await agentProvider.executeCheck(prompt, repositoryPath);
     const executionTime = checkTimer.elapsed();
 
-    logDebug(TAG, `AI response: ${aiResponse.raw.length} chars`);
-    const parsed = aiResponse.parsed ?? parseAIResponse(aiResponse.raw);
+    logDebug(TAG, `Agent response: ${agentResponse.raw.length} chars`);
+    const parsed = agentResponse.parsed ?? parseAgentResponse(agentResponse.raw);
 
     if (!parsed) {
       logProgress(TAG, 'Result: ERROR (malformed response)');
@@ -329,9 +381,9 @@ async function executeSingleCheck(
         status: 'ERROR',
         issuesFound: 0,
         executionTime,
-        error: 'AI provider returned malformed response',
-        rawAiResponse: aiResponse.raw,
-        tokenUsage: aiResponse.tokenUsage,
+        error: 'Agent provider returned malformed response',
+        rawAiResponse: agentResponse.raw,
+        tokenUsage: agentResponse.tokenUsage,
       };
     } else if (parsed.issues.length > 0) {
       logProgress(TAG, `Result: FAIL (${parsed.issues.length} issues)`);
@@ -348,7 +400,7 @@ async function executeSingleCheck(
         status: 'FAIL',
         issuesFound: issues.length,
         executionTime,
-        tokenUsage: aiResponse.tokenUsage,
+        tokenUsage: agentResponse.tokenUsage,
       };
     } else if (parsed.flagged) {
       logProgress(TAG, 'Result: FLAG (AI flagged for review)');
@@ -358,7 +410,7 @@ async function executeSingleCheck(
         status: 'FLAG',
         issuesFound: 0,
         executionTime,
-        tokenUsage: aiResponse.tokenUsage,
+        tokenUsage: agentResponse.tokenUsage,
       };
     } else {
       logProgress(TAG, 'Result: PASS');
@@ -368,7 +420,7 @@ async function executeSingleCheck(
         status: 'PASS',
         issuesFound: 0,
         executionTime,
-        tokenUsage: aiResponse.tokenUsage,
+        tokenUsage: agentResponse.tokenUsage,
       };
     }
   } catch (err) {
@@ -402,7 +454,7 @@ async function executeTargetedCheck(
   checkName: string,
   checkInstructions: string,
   repositoryPath: string,
-  aiProvider: AIProvider,
+  agentProvider: AgentProvider,
   checkMetadata?: { severity?: string; confidence?: string },
   optionsConcurrency?: number,
   configDir?: string,
@@ -490,26 +542,37 @@ async function executeTargetedCheck(
           const prompt = basePrompt + (target.promptEnrichment ?? '');
 
           logDebug(TAG, `${target.label} Analyzing: ${target.file}:${target.startLine}-${target.endLine}`);
-          const aiResponse = await aiProvider.executeCheck(
+          const agentResponse = await agentProvider.executeCheck(
             prompt,
             repositoryPath,
             target.label,
-            target.aiOptions,
+            target.agentOptions,
           );
 
-          const parsed = aiResponse.parsed ?? parseAIResponse(aiResponse.raw);
+          const parsed = agentResponse.parsed ?? parseAgentResponse(agentResponse.raw);
 
           if (!parsed) {
             logDebug(TAG, `${target.label} Returned malformed response`);
-            return { issues: [] as SecurityIssue[], error: true, flagged: false, tokenUsage: aiResponse.tokenUsage };
+            return { issues: [] as SecurityIssue[], error: true, flagged: false, tokenUsage: agentResponse.tokenUsage };
+          }
+
+          // Apply optional per-target issue cap (checkTarget.maxIssuesPerTarget).
+          // Useful for checks whose prompt expects one combined issue per target;
+          // most checks should leave it unset and allow unlimited issues per target.
+          const maxIssues = checkTarget.maxIssuesPerTarget;
+          const cappedIssues = typeof maxIssues === 'number' && maxIssues >= 0
+            ? parsed.issues.slice(0, maxIssues)
+            : parsed.issues;
+          if (cappedIssues.length < parsed.issues.length) {
+            logDebug(TAG, `${target.label} Capping ${parsed.issues.length} issues to ${maxIssues} (maxIssuesPerTarget)`);
           }
 
           const issues = await Promise.all(
-            parsed.issues.map((aiIssue) =>
+            cappedIssues.map((aiIssue) =>
               enrichIssue(aiIssue, checkId, checkName, repositoryPath, checkMetadata),
             ),
           );
-          return { issues, error: false, flagged: parsed.flagged === true, tokenUsage: aiResponse.tokenUsage };
+          return { issues, error: false, flagged: parsed.flagged === true, tokenUsage: agentResponse.tokenUsage };
         } catch (err) {
           // Fatal errors: signal abort and re-throw to stop other workers
           if (err instanceof FatalProviderError) {
@@ -683,7 +746,7 @@ async function executeStaticCheck(
  * Run multiple security checks and return aggregated ScanResults.
  */
 export async function runMultiScan(options: MultiScanOptions): Promise<ScanResults> {
-  const { repositoryPath, checks, aiProvider, aiModelName, aiProviderName, concurrency, configDir, genericPrompt } = options;
+  const { repositoryPath, checks, agentProvider, modelName, agentProviderName, concurrency, configDir, genericPrompt } = options;
   const scanTimer = createTimer();
   const scanId = generateScanId();
   const startTime = new Date();
@@ -706,7 +769,7 @@ export async function runMultiScan(options: MultiScanOptions): Promise<ScanResul
 
   // Track all models used during the scan
   const modelsUsed = new Set<string>();
-  if (aiModelName) modelsUsed.add(aiModelName);
+  if (modelName) modelsUsed.add(modelName);
 
   // Execute checks sequentially
   for (let ci = 0; ci < checks.length; ci++) {
@@ -717,7 +780,7 @@ export async function runMultiScan(options: MultiScanOptions): Promise<ScanResul
     };
 
     // Apply per-check model override if specified
-    const previousModel = applyPerCheckModel(check, aiProvider, aiModelName);
+    const previousModel = applyPerCheckModel(check, agentProvider, modelName);
     if (check.model) modelsUsed.add(check.model);
 
     try {
@@ -726,7 +789,7 @@ export async function runMultiScan(options: MultiScanOptions): Promise<ScanResul
         details.name,
         details.content,
         repositoryPath,
-        aiProvider,
+        agentProvider,
         checkMetadata,
         concurrency,
         configDir,
@@ -768,7 +831,7 @@ export async function runMultiScan(options: MultiScanOptions): Promise<ScanResul
       throw err;
     } finally {
       // Restore the global model after per-check override
-      restoreModel(aiProvider, previousModel);
+      restoreModel(agentProvider, previousModel);
     }
   }
 
@@ -800,8 +863,8 @@ export async function runMultiScan(options: MultiScanOptions): Promise<ScanResul
     executionTime,
     startTime: startTime.toISOString(),
     endTime: endTime.toISOString(),
-    aiProvider: aiProvider
-      ? { name: aiProviderName ?? 'claude-code', models: modelsUsed.size > 0 ? [...modelsUsed] : [DEFAULT_AI_MODEL] }
+    agentProvider: agentProvider
+      ? { name: agentProviderName ?? DEFAULT_PROVIDER_NAME, models: modelsUsed.size > 0 ? [...modelsUsed] : [DEFAULT_MODEL] }
       : { name: 'none', models: [] },
     tokenUsage: aggregateTokenUsage,
   };

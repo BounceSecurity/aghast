@@ -15,6 +15,9 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  REGRESSION_TEST_MODEL: opencode/big-pickle
+
 permissions:
   contents: read
 
@@ -284,6 +287,92 @@ jobs:
 
       - name: Run OpenAnt integration tests
         run: npm run test:openant
+
+  opencode-integration:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ${{ github.event.repository.name == 'aghast' && fromJSON('["windows-latest","ubuntu-latest","macos-latest"]') || fromJSON('["ubuntu-latest"]') }}
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - run: npm ci
+
+      - name: Install OpenCode CLI
+        run: npm install -g opencode-ai
+
+      - name: Run OpenCode integration tests (with retry)
+        run: npm run test:opencode || npm run test:opencode || npm run test:opencode
+        timeout-minutes: 10
+
+  regression-test-sarif:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - run: npm ci
+
+      - name: Install OpenCode CLI
+        run: npm install -g opencode-ai
+
+      - name: Clone public checks repo
+        run: git clone --depth=1 https://github.com/BounceSecurity/aghast-bounce-checks-public.git checks-config-public
+
+      - name: Run regression test (test-9, SARIF false-positive validation, with retry)
+        run: |
+          npx tsx checks-config-public/scripts/regression-test.ts --codebase test-9-sast-false-positives --agent-provider opencode --model ${{ env.REGRESSION_TEST_MODEL }} ||
+          npx tsx checks-config-public/scripts/regression-test.ts --codebase test-9-sast-false-positives --agent-provider opencode --model ${{ env.REGRESSION_TEST_MODEL }} ||
+          npx tsx checks-config-public/scripts/regression-test.ts --codebase test-9-sast-false-positives --agent-provider opencode --model ${{ env.REGRESSION_TEST_MODEL }}
+        timeout-minutes: 20
+
+  regression-test-semgrep:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - run: npm ci
+
+      - name: Install OpenCode CLI
+        run: npm install -g opencode-ai
+
+      - run: echo semgrep > requirements.txt
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.x'
+          cache: 'pip'
+
+      - name: Install Semgrep
+        run: pip install -r requirements.txt
+
+      - name: Clone public checks repo
+        run: git clone --depth=1 https://github.com/BounceSecurity/aghast-bounce-checks-public.git checks-config-public
+
+      - name: Run regression test (test-2, targeted Semgrep+AI, with retry)
+        run: |
+          npx tsx checks-config-public/scripts/regression-test.ts --codebase test-2-importantvalidations-easy --agent-provider opencode --model ${{ env.REGRESSION_TEST_MODEL }} ||
+          npx tsx checks-config-public/scripts/regression-test.ts --codebase test-2-importantvalidations-easy --agent-provider opencode --model ${{ env.REGRESSION_TEST_MODEL }} ||
+          npx tsx checks-config-public/scripts/regression-test.ts --codebase test-2-importantvalidations-easy --agent-provider opencode --model ${{ env.REGRESSION_TEST_MODEL }}
+        timeout-minutes: 20
 
   build-and-install:
     needs: [check-ci-skip]

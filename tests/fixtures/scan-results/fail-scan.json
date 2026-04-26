@@ -43,7 +43,7 @@
     "errorChecks": 0,
     "totalIssues": 1
   },
-  "aiProvider": {
+  "agentProvider": {
     "name": "claude-code",
     "models": ["claude-sonnet-4-5-20250929"]
   },

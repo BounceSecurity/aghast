@@ -3,9 +3,9 @@
  * Based on SPECIFICATION.md Appendix A.
  */
 
-// --- Default AI Model ---
+// --- Default Model ---
 
-export const DEFAULT_AI_MODEL = 'haiku';
+export const DEFAULT_MODEL = 'haiku';
 export const MOCK_MODEL_NAME = 'mock';
 
 // --- Token Usage ---
@@ -76,6 +76,8 @@ export interface CheckTargetDefinition {
   sarifFile?: string;
   maxTargets?: number;
   concurrency?: number;
+  /** Cap on issues returned per target; omit for unlimited. See docs/configuration.md. */
+  maxIssuesPerTarget?: number;
   /** Analysis mode: determines the AI's approach to each target. */
   analysisMode?: 'custom' | 'false-positive-validation' | 'general-vuln-discovery';
   openant?: OpenAntFilterConfig;
@@ -115,7 +117,7 @@ export interface SecurityIssue {
   dataFlow?: DataFlowStep[];
 }
 
-// --- A.3b AI Check Response ---
+// --- A.3b Check Response ---
 
 export interface CheckResponse {
   issues: AIIssue[];
@@ -127,8 +129,8 @@ export interface CheckResponse {
 /** Raw issue as returned by the AI (before enrichment). */
 export interface AIIssue {
   file: string;
-  startLine: number; // Required - enforced via JSON schema in AI provider
-  endLine: number; // Required - enforced via JSON schema in AI provider
+  startLine: number; // Required - enforced via JSON schema in agent provider
+  endLine: number; // Required - enforced via JSON schema in agent provider
   description: string;
   dataFlow?: DataFlowStep[];
 }
@@ -143,6 +145,13 @@ export interface CheckExecutionSummary {
   executionTime: number;
   targetsAnalyzed?: number;
   error?: string;
+  /**
+   * Raw text body of the agent provider's response, included in ERROR results
+   * for debugging. Field name retains "AI" (rather than "Agent") because the
+   * stored content is the LLM's raw text output — same rationale as
+   * AGHAST_MOCK_AI / AGHAST_AI_MODEL: the model and its output are AI/LLM
+   * concerns, the harness around them is the agent.
+   */
   rawAiResponse?: string;
   tokenUsage?: TokenUsage;
 }
@@ -160,7 +169,7 @@ export interface ScanResults {
   executionTime: number;
   startTime: string;
   endTime: string;
-  aiProvider: {
+  agentProvider: {
     name: string;
     models: string[];
   };
@@ -188,7 +197,7 @@ export interface ScanSummary {
 // --- Runtime Configuration (spec Section 8.1) ---
 
 export interface RuntimeConfig {
-  aiProvider?: {
+  agentProvider?: {
     name?: string;
     model?: string;
   };
@@ -252,7 +261,7 @@ export interface CheckDetails {
   content: string;
 }
 
-// --- C.5 AI Provider Interface ---
+// --- C.5 Agent Provider Interface ---
 
 export interface ProviderConfig {
   apiKey?: string;
@@ -260,7 +269,7 @@ export interface ProviderConfig {
   [key: string]: unknown;
 }
 
-export interface AIResponse {
+export interface AgentResponse {
   raw: string;
   parsed?: CheckResponse;
   tokenUsage?: TokenUsage;
@@ -276,24 +285,31 @@ export interface ProviderModelInfo {
   description?: string;
 }
 
-export interface AIProvider {
+export interface AgentProvider {
   initialize(config: ProviderConfig): Promise<void>;
   executeCheck(
     instructions: string,
     repositoryPath: string,
     logPrefix?: string,
     options?: { maxTurns?: number },
-  ): Promise<AIResponse>;
+  ): Promise<AgentResponse>;
   validateConfig(): Promise<boolean>;
+  /**
+   * Check that required prerequisites (API keys, binaries, etc.) are available.
+   * Called before initialize() to give early feedback. Throws with a descriptive
+   * error message if a prerequisite is missing.
+   */
+  checkPrerequisites?(): void;
   getModelName?(): string;
   setModel?(model: string): void;
   enableDebug?(): void;
+  cleanup?(): Promise<void>;
   /** Closed list of models this provider accepts. Used by `aghast build-config`. */
   listModels?(): Promise<readonly ProviderModelInfo[]>;
 }
 
 /**
- * Error thrown by AI providers for unrecoverable failures (e.g. 401 auth, rate limits).
+ * Error thrown by agent providers for unrecoverable failures (e.g. 401 auth, rate limits).
  * When caught by the scan runner, this signals that the entire scan should abort —
  * no further checks or targets should be attempted.
  */

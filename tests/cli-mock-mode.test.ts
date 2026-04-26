@@ -1,8 +1,8 @@
 /**
- * Integration tests for CLI mock AI provider mode (part 1).
+ * Integration tests for CLI mock agent provider mode (part 1).
  *
  * Spawns the actual CLI process with AGHAST_MOCK_AI=true to verify
- * the full pipeline end-to-end without a real AI provider.
+ * the full pipeline end-to-end without a real agent provider.
  * Exercises: config loading, check filtering, prompt building, response
  * parsing, snippet extraction, issue enrichment, report generation,
  * and CLI output.
@@ -27,6 +27,7 @@ import {
   disabledConfigDir,
   invalidConfigDir,
   multiTargetConfigDir,
+  multiTargetCappedConfigDir,
   mixedChecksConfigDir,
   semgrepOnlyConfigDir,
   cli3TargetsSarif,
@@ -73,7 +74,7 @@ describe('CLI mock mode: PASS scenarios', () => {
   it('stdout indicates mock provider is active', async () => {
     const { stdout, stderr } = await runCLI({ AGHAST_MOCK_AI: 'true' });
     const combined = stdout + stderr;
-    assert.ok(combined.includes('MOCK AI provider'), 'Should log mock provider message');
+    assert.ok(combined.includes('Mock provider'), 'Should log mock provider message');
   });
 
   it('stdout shows "Using model: mock"', async () => {
@@ -112,7 +113,7 @@ describe('CLI mock mode: ScanResults output structure', () => {
     assert.ok(results.summary, 'Should have summary');
     assert.ok(results.startTime, 'Should have startTime');
     assert.ok(results.endTime, 'Should have endTime');
-    assert.ok(results.aiProvider, 'Should have aiProvider');
+    assert.ok(results.agentProvider, 'Should have agentProvider');
     assert.equal(typeof results.executionTime, 'number', 'executionTime should be a number');
   });
 
@@ -131,12 +132,12 @@ describe('CLI mock mode: ScanResults output structure', () => {
     }
   });
 
-  it('aiProvider shows mock model', async () => {
+  it('agentProvider shows mock model', async () => {
     await runCLI({ AGHAST_MOCK_AI: 'true' });
     const results = await readResults();
-    const aiProvider = results.aiProvider as { name: string; models: string[] };
-    assert.equal(aiProvider.name, 'mock');
-    assert.ok(aiProvider.models.includes(MOCK_MODEL_NAME), `models should include "${MOCK_MODEL_NAME}"`);
+    const agentProvider = results.agentProvider as { name: string; models: string[] };
+    assert.equal(agentProvider.name, 'mock');
+    assert.ok(agentProvider.models.includes(MOCK_MODEL_NAME), `models should include "${MOCK_MODEL_NAME}"`);
   });
 
   it('repository info contains the fixture repo path', async () => {
@@ -831,6 +832,49 @@ describe('CLI mock mode: multi-target checks', () => {
       assert.equal(issue.checkId, 'aghast-mt-sqli');
       assert.equal(issue.checkName, 'SQL Injection Prevention');
     }
+  });
+
+  it('maxIssuesPerTarget: caps issues per target when set in checkTarget', async () => {
+    // Without cap, multiIssueFixture (2 issues per response) × 3 targets = 6 issues.
+    // With maxIssuesPerTarget: 1 in checkTarget, only the first issue per target
+    // is kept → 3 issues total.
+    const { exitCode } = await runCLI(
+      {
+        AGHAST_MOCK_AI: multiIssueFixture,
+        AGHAST_MOCK_SEMGREP: cli3TargetsSarif,
+      },
+      [fixtureRepo, '--config-dir', multiTargetCappedConfigDir],
+    );
+    assert.equal(exitCode, 0);
+
+    const results = await readResults();
+    const issues = results.issues as Array<Record<string, unknown>>;
+    const checks = results.checks as Array<Record<string, unknown>>;
+
+    assert.equal(checks[0].targetsAnalyzed, 3);
+    assert.equal(issues.length, 3, 'Cap of 1 issue per target × 3 targets = 3 issues');
+
+    // The kept issue is the first entry of the AI response — multi-issue-fixture-repo.json's
+    // first issue describes "SQL injection" at lines 3-5.
+    for (const issue of issues) {
+      assert.match(issue.description as string, /SQL injection/i);
+    }
+  });
+
+  it('maxIssuesPerTarget unset (multi-target config): all issues per target are kept', async () => {
+    // Sanity check the inverse: same fixtures against the un-capped config should
+    // yield 6 issues (2 per target × 3 targets), confirming the cap is opt-in.
+    await runCLI(
+      {
+        AGHAST_MOCK_AI: multiIssueFixture,
+        AGHAST_MOCK_SEMGREP: cli3TargetsSarif,
+      },
+      [fixtureRepo, '--config-dir', multiTargetConfigDir],
+    );
+
+    const results = await readResults();
+    const issues = results.issues as Array<Record<string, unknown>>;
+    assert.equal(issues.length, 6, 'No cap = 2 issues × 3 targets = 6 issues');
   });
 
   it('empty SARIF: 0 targets → PASS, targetsAnalyzed: 0', async () => {

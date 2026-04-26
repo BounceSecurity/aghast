@@ -20,11 +20,11 @@ import { analyzeRepository } from './repository-analyzer.js';
 import { loadRuntimeConfig } from './runtime-config.js';
 import { logProgress, logDebug, setLogLevel, createTimer, isValidLogLevel, initFileHandler, closeAllHandlers, getAvailableLogTypes } from './logging.js';
 import type { LogLevel } from './logging.js';
-import { MOCK_MODEL_NAME, DEFAULT_AI_MODEL, type AIProvider } from './types.js';
+import { MOCK_MODEL_NAME, DEFAULT_MODEL, type AgentProvider } from './types.js';
 import { getFormatter } from './formatters/index.js';
 import { verifySemgrepInstalled } from './semgrep-runner.js';
 import { verifyOpenAntInstalled } from './openant-runner.js';
-import { MockAIProvider } from './mock-ai-provider.js';
+import { MockAgentProvider } from './mock-agent-provider.js';
 import { ERROR_CODES, formatError, formatFatalError } from './error-codes.js';
 import { DEFAULT_OUTPUT_FORMAT, DEFAULT_LOG_LEVEL, DEFAULT_LOG_TYPE } from './defaults.js';
 import { colorStatus } from './colors.js';
@@ -33,7 +33,7 @@ import { createRequire } from 'node:module';
 
 const TAG = 'aghast';
 
-async function createMockProvider(): Promise<AIProvider> {
+async function createMockProvider(): Promise<AgentProvider> {
   // AGHAST_MOCK_AI='true' → default empty response; AGHAST_MOCK_AI=<path> → read from that file
   const mockAiValue = process.env.AGHAST_MOCK_AI;
   let rawResponse = '{"issues": []}';
@@ -45,7 +45,7 @@ async function createMockProvider(): Promise<AIProvider> {
     }
   }
 
-  const provider = new MockAIProvider({ rawResponse });
+  const provider = new MockAgentProvider({ rawResponse });
   await provider.initialize({});
   return provider;
 }
@@ -73,7 +73,7 @@ General options:
   --log-type <type>          Log file handler type (default: file).
                              Available types: file
   --model <model>            AI model override (e.g. claude-sonnet-4-20250514)
-  --ai-provider <name>       AI provider name (default: claude-code)
+  --agent-provider <name>    Agent provider name (default: claude-code)
   --generic-prompt <file>    Generic prompt template filename in prompts/ dir
 
 Environment variables:
@@ -105,7 +105,7 @@ function parseArgs(args: string[]): {
   logType?: string;
   runtimeConfigPath?: string;
   model?: string;
-  aiProvider?: string;
+  agentProvider?: string;
   genericPrompt?: string;
 } {
   if (args.length < 1 || args[0] === '--help' || args[0] === '-h') {
@@ -128,7 +128,7 @@ function parseArgs(args: string[]): {
   let logType: string | undefined;
   let runtimeConfigPath: string | undefined;
   let model: string | undefined;
-  let aiProvider: string | undefined;
+  let agentProvider: string | undefined;
   let genericPrompt: string | undefined;
 
   for (let i = startIdx; i < args.length; i++) {
@@ -181,10 +181,10 @@ function parseArgs(args: string[]): {
         i++;
         break;
       }
-      case '--ai-provider': {
-        aiProvider = args[i + 1];
-        if (!aiProvider) {
-          console.error(formatError(ERROR_CODES.E1001, '--ai-provider requires a provider name argument'));
+      case '--agent-provider': {
+        agentProvider = args[i + 1];
+        if (!agentProvider) {
+          console.error(formatError(ERROR_CODES.E1001, '--agent-provider requires a provider name argument'));
           process.exit(1);
         }
         i++;
@@ -234,26 +234,26 @@ function parseArgs(args: string[]): {
   return {
     repositoryPath, configDir, outputPath, outputFormat,
     failOnCheckFailure, debug, logLevel, logFile, logType,
-    runtimeConfigPath, model, aiProvider, genericPrompt,
+    runtimeConfigPath, model, agentProvider, genericPrompt,
   };
 }
 
 async function createProvider(
   useMock: boolean,
-  aiProviderName: string,
+  agentProviderName: string,
   modelOverride?: string,
-): Promise<{ provider: AIProvider; modelName: string }> {
+): Promise<{ provider: AgentProvider; modelName: string }> {
   if (useMock) {
-    logProgress(TAG, `MOCK AI provider enabled via AGHAST_MOCK_AI=${process.env.AGHAST_MOCK_AI}`);
+    logProgress(TAG, `Mock provider enabled via AGHAST_MOCK_AI=${process.env.AGHAST_MOCK_AI}`);
     return { provider: await createMockProvider(), modelName: MOCK_MODEL_NAME };
   }
 
-  const provider = createProviderByName(aiProviderName);
+  const provider = createProviderByName(agentProviderName);
   await provider.initialize({
     apiKey: process.env.ANTHROPIC_API_KEY,
     model: modelOverride,
   });
-  const modelName = provider.getModelName?.() ?? DEFAULT_AI_MODEL;
+  const modelName = provider.getModelName?.() ?? DEFAULT_MODEL;
   return { provider, modelName };
 }
 
@@ -457,32 +457,35 @@ export async function runScan(args: string[]): Promise<void> {
   const needsSemgrep = checksWithDetails.some(c => c.check.checkTarget?.discovery === 'semgrep');
   const needsOpenant = checksWithDetails.some(c => c.check.checkTarget?.discovery === 'openant');
 
-  // ─── Conditional AI provider setup ───
-  const aiProviderName = parsed.aiProvider ?? runtimeConfig.aiProvider?.name ?? DEFAULT_PROVIDER_NAME;
+  // ─── Conditional agent provider setup ───
+  const agentProviderName = parsed.agentProvider ?? runtimeConfig.agentProvider?.name ?? DEFAULT_PROVIDER_NAME;
 
   if (needsAI && !useMock) {
-    // Validate AI provider name before checking credentials (config errors before auth errors)
-    if (!getProviderNames().includes(aiProviderName)) {
+    // Validate agent provider name before checking credentials (config errors before auth errors)
+    if (!getProviderNames().includes(agentProviderName)) {
       console.error(
-        formatError(ERROR_CODES.E3002, `Unknown AI provider "${aiProviderName}". Supported providers: ${getProviderNames().join(', ')}`),
+        formatError(ERROR_CODES.E3002, `Unknown agent provider "${agentProviderName}". Supported providers: ${getProviderNames().join(', ')}`),
       );
       process.exit(1);
     }
 
-    // Validate ANTHROPIC_API_KEY (not needed when using mock or local Claude)
-    if (!process.env.ANTHROPIC_API_KEY && process.env.AGHAST_LOCAL_CLAUDE !== 'true') {
-      console.error(formatError(ERROR_CODES.E3001, 'ANTHROPIC_API_KEY environment variable is required'));
+    // Validate provider-specific prerequisites (API keys, binaries, etc.)
+    try {
+      const tempProvider = createProviderByName(agentProviderName);
+      tempProvider.checkPrerequisites?.();
+    } catch (err) {
+      console.error(formatError(ERROR_CODES.E3001, err instanceof Error ? err.message : String(err)));
       process.exit(1);
     }
   }
 
   // Resolve model precedence: CLI --model > env AGHAST_AI_MODEL > runtime config > default
-  const modelOverride = parsed.model ?? process.env.AGHAST_AI_MODEL ?? runtimeConfig.aiProvider?.model;
+  const modelOverride = parsed.model ?? process.env.AGHAST_AI_MODEL ?? runtimeConfig.agentProvider?.model;
 
-  let provider: AIProvider | undefined;
+  let provider: AgentProvider | undefined;
   let modelName: string | undefined;
   if (needsAI) {
-    ({ provider, modelName } = await createProvider(useMock, aiProviderName, modelOverride));
+    ({ provider, modelName } = await createProvider(useMock, agentProviderName, modelOverride));
     if (resolvedLogLevel === 'debug' || resolvedLogLevel === 'trace') {
       provider.enableDebug?.();
     }
@@ -509,63 +512,70 @@ export async function runScan(args: string[]): Promise<void> {
     }
   }
 
-  const results = await runMultiScan({
-    repositoryPath: effectiveRepoPath,
-    checks: checksWithDetails,
-    aiProvider: provider,
-    aiModelName: needsAI ? modelName : undefined,
-    repositoryInfo: repoAnalysis?.repository,
-    aiProviderName: needsAI ? (useMock ? 'mock' : aiProviderName) : undefined,
-    configDir,
-    genericPrompt,
-  });
+  try {
+    const results = await runMultiScan({
+      repositoryPath: effectiveRepoPath,
+      checks: checksWithDetails,
+      agentProvider: provider,
+      modelName: needsAI ? modelName : undefined,
+      repositoryInfo: repoAnalysis?.repository,
+      agentProviderName: needsAI ? (useMock ? 'mock' : agentProviderName) : undefined,
+      configDir,
+      genericPrompt,
+    });
 
-  // Resolve output path: --output flag > runtime config dir > default
-  let resolvedOutputPath: string;
-  if (parsed.outputPath) {
-    resolvedOutputPath = parsed.outputPath;
-  } else if (runtimeConfig.reporting?.outputDirectory) {
-    const dir = resolve(runtimeConfig.reporting.outputDirectory);
-    resolvedOutputPath = resolve(dir, 'security_checks_results' + formatter.fileExtension);
-  } else {
-    resolvedOutputPath = resolve(effectiveRepoPath, 'security_checks_results' + formatter.fileExtension);
+    // Resolve output path: --output flag > runtime config dir > default
+    let resolvedOutputPath: string;
+    if (parsed.outputPath) {
+      resolvedOutputPath = parsed.outputPath;
+    } else if (runtimeConfig.reporting?.outputDirectory) {
+      const dir = resolve(runtimeConfig.reporting.outputDirectory);
+      resolvedOutputPath = resolve(dir, 'security_checks_results' + formatter.fileExtension);
+    } else {
+      resolvedOutputPath = resolve(effectiveRepoPath, 'security_checks_results' + formatter.fileExtension);
+    }
+    await mkdir(dirname(resolvedOutputPath), { recursive: true });
+    await writeFile(resolvedOutputPath, formatter.format(results), 'utf-8');
+
+    // Summary output
+    const statusIcon =
+      results.summary.failedChecks > 0
+        ? 'ISSUES DETECTED'
+        : results.summary.flaggedChecks > 0
+          ? 'REVIEW REQUIRED'
+          : results.summary.errorChecks > 0
+            ? 'SCAN ERROR'
+            : 'NO ISSUES DETECTED';
+
+    console.log('');
+    console.log('='.repeat(60));
+    console.log(`AGHAST Scan Complete: ${colorStatus(statusIcon)}`);
+    console.log('='.repeat(60));
+    console.log(`  Total checks:  ${results.summary.totalChecks}`);
+    console.log(`  Passed:        ${results.summary.passedChecks}`);
+    console.log(`  Failed:        ${results.summary.failedChecks}`);
+    console.log(`  Flagged:       ${results.summary.flaggedChecks}`);
+    console.log(`  Errors:        ${results.summary.errorChecks}`);
+    console.log(`  Total issues:  ${results.summary.totalIssues}`);
+    if (results.tokenUsage) {
+      console.log(`  Tokens:        ${results.tokenUsage.totalTokens.toLocaleString()} (in: ${results.tokenUsage.inputTokens.toLocaleString()}, out: ${results.tokenUsage.outputTokens.toLocaleString()})`);
+    }
+    console.log(`  Duration:      ${globalTimer.elapsedStr()}`);
+    console.log(`  Results:       ${resolvedOutputPath}`);
+    console.log('='.repeat(60));
+
+    // Exit code based on --fail-on-check-failure flag or runtime config (spec Section 9.3)
+    const failOnCheckFailure = parsed.failOnCheckFailure || runtimeConfig.failOnCheckFailure === true;
+    const shouldFail =
+      failOnCheckFailure && (results.summary.failedChecks > 0 || results.summary.errorChecks > 0);
+    await closeAllHandlers();
+    process.exit(shouldFail ? 1 : 0);
+  } finally {
+    // Clean up provider resources (e.g. OpenCode server process)
+    if (provider && 'cleanup' in provider && typeof provider.cleanup === 'function') {
+      await (provider.cleanup as () => Promise<void>)();
+    }
   }
-  await mkdir(dirname(resolvedOutputPath), { recursive: true });
-  await writeFile(resolvedOutputPath, formatter.format(results), 'utf-8');
-
-  // Summary output
-  const statusIcon =
-    results.summary.failedChecks > 0
-      ? 'ISSUES DETECTED'
-      : results.summary.flaggedChecks > 0
-        ? 'REVIEW REQUIRED'
-        : results.summary.errorChecks > 0
-          ? 'SCAN ERROR'
-          : 'NO ISSUES DETECTED';
-
-  console.log('');
-  console.log('='.repeat(60));
-  console.log(`AGHAST Scan Complete: ${colorStatus(statusIcon)}`);
-  console.log('='.repeat(60));
-  console.log(`  Total checks:  ${results.summary.totalChecks}`);
-  console.log(`  Passed:        ${results.summary.passedChecks}`);
-  console.log(`  Failed:        ${results.summary.failedChecks}`);
-  console.log(`  Flagged:       ${results.summary.flaggedChecks}`);
-  console.log(`  Errors:        ${results.summary.errorChecks}`);
-  console.log(`  Total issues:  ${results.summary.totalIssues}`);
-  if (results.tokenUsage) {
-    console.log(`  Tokens:        ${results.tokenUsage.totalTokens.toLocaleString()} (in: ${results.tokenUsage.inputTokens.toLocaleString()}, out: ${results.tokenUsage.outputTokens.toLocaleString()})`);
-  }
-  console.log(`  Duration:      ${globalTimer.elapsedStr()}`);
-  console.log(`  Results:       ${resolvedOutputPath}`);
-  console.log('='.repeat(60));
-
-  // Exit code based on --fail-on-check-failure flag or runtime config (spec Section 9.3)
-  const failOnCheckFailure = parsed.failOnCheckFailure || runtimeConfig.failOnCheckFailure === true;
-  const shouldFail =
-    failOnCheckFailure && (results.summary.failedChecks > 0 || results.summary.errorChecks > 0);
-  await closeAllHandlers();
-  process.exit(shouldFail ? 1 : 0);
 }
 
 // Auto-run when executed directly (npm run scan / tsx src/index.ts), but not when imported by cli.ts.

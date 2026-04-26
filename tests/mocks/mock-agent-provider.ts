@@ -1,13 +1,13 @@
 /**
- * Mock AI Provider for testing.
+ * Mock Agent Provider for testing.
  *
- * Implements the AIProvider interface with configurable responses
+ * Implements the AgentProvider interface with configurable responses
  * for use in unit and integration tests. Never calls a real AI API.
  */
 
 import type {
-  AIProvider,
-  AIResponse,
+  AgentProvider,
+  AgentResponse,
   CheckResponse,
   ProviderConfig,
   TokenUsage,
@@ -25,14 +25,15 @@ export interface MockProviderOptions {
   delay?: number;
   /** Whether validateConfig should return true. */
   validConfig?: boolean;
-  /** Token usage to include in AIResponse. */
+  /** Token usage to include in AgentResponse. */
   tokenUsage?: TokenUsage;
 }
 
-export class MockAIProvider implements AIProvider {
+export class MockAgentProvider implements AgentProvider {
   public callHistory: Array<{
     instructions: string;
     repositoryPath: string;
+    options?: { maxTurns?: number };
   }> = [];
 
   public initialized = false;
@@ -57,8 +58,9 @@ export class MockAIProvider implements AIProvider {
     instructions: string,
     repositoryPath: string,
     _logPrefix?: string,
-  ): Promise<AIResponse> {
-    this.callHistory.push({ instructions, repositoryPath });
+    options?: { maxTurns?: number },
+  ): Promise<AgentResponse> {
+    this.callHistory.push({ instructions, repositoryPath, options });
 
     if (this.options.delay && this.options.delay > 0) {
       await new Promise((resolve) => setTimeout(resolve, this.options.delay));
@@ -132,15 +134,15 @@ export class MockAIProvider implements AIProvider {
 // --- Pre-configured factory functions ---
 
 /** Provider that always returns PASS (no issues). */
-export function createPassProvider(): MockAIProvider {
-  return new MockAIProvider({
+export function createPassProvider(): MockAgentProvider {
+  return new MockAgentProvider({
     response: { issues: [] },
   });
 }
 
 /** Provider that returns FAIL with predefined issues. */
-export function createFailProvider(): MockAIProvider {
-  return new MockAIProvider({
+export function createFailProvider(): MockAgentProvider {
+  return new MockAgentProvider({
     response: {
       issues: [
         {
@@ -155,46 +157,46 @@ export function createFailProvider(): MockAIProvider {
 }
 
 /** Provider that returns malformed (non-JSON) response. */
-export function createMalformedProvider(): MockAIProvider {
-  return new MockAIProvider({
+export function createMalformedProvider(): MockAgentProvider {
+  return new MockAgentProvider({
     rawResponse: 'This is not valid JSON. The code looks fine to me.',
   });
 }
 
 /** Provider that throws a timeout error. */
-export function createTimeoutProvider(): MockAIProvider {
-  return new MockAIProvider({
-    error: new Error('AI provider request timed out after 60000ms'),
+export function createTimeoutProvider(): MockAgentProvider {
+  return new MockAgentProvider({
+    error: new Error('Agent provider request timed out after 60000ms'),
   });
 }
 
 /** Provider that throws an authentication error. */
-export function createAuthErrorProvider(): MockAIProvider {
-  return new MockAIProvider({
+export function createAuthErrorProvider(): MockAgentProvider {
+  return new MockAgentProvider({
     error: new Error('Invalid API key: authentication failed'),
     validConfig: false,
   });
 }
 
 /** Provider with configurable delay (for concurrency testing). */
-export function createDelayedProvider(delayMs: number): MockAIProvider {
-  return new MockAIProvider({
+export function createDelayedProvider(delayMs: number): MockAgentProvider {
+  return new MockAgentProvider({
     response: { issues: [] },
     delay: delayMs,
   });
 }
 
 /** Provider that always returns PASS with token usage. */
-export function createPassProviderWithTokens(tokenUsage?: TokenUsage): MockAIProvider {
-  return new MockAIProvider({
+export function createPassProviderWithTokens(tokenUsage?: TokenUsage): MockAgentProvider {
+  return new MockAgentProvider({
     response: { issues: [] },
     tokenUsage: tokenUsage ?? { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
   });
 }
 
 /** Provider that throws a FatalProviderError (unrecoverable, aborts scan). */
-export function createFatalErrorProvider(message?: string): MockAIProvider {
-  return new MockAIProvider({
-    error: new FatalProviderError(message ?? 'AI provider authentication failed (401)'),
+export function createFatalErrorProvider(message?: string): MockAgentProvider {
+  return new MockAgentProvider({
+    error: new FatalProviderError(message ?? 'Agent provider authentication failed (401)'),
   });
 }

@@ -1,13 +1,13 @@
 /**
- * Lightweight mock AI provider for CLI `AGHAST_MOCK_AI` mode.
+ * Lightweight mock agent provider for CLI `AGHAST_MOCK_AI` mode.
  *
  * Returns a fixed raw response without calling any AI API.
  * This is shipped with the package (unlike the full test mock in tests/mocks/).
  */
 
-import type { AIProvider, AIResponse, ProviderConfig } from './types.js';
+import type { AgentProvider, AgentResponse, ProviderConfig } from './types.js';
 
-export class MockAIProvider implements AIProvider {
+export class MockAgentProvider implements AgentProvider {
   private rawResponse: string;
 
   constructor(options: { rawResponse: string }) {
@@ -23,7 +23,7 @@ export class MockAIProvider implements AIProvider {
     _repositoryPath: string,
     _logPrefix?: string,
     _options?: { maxTurns?: number },
-  ): Promise<AIResponse> {
+  ): Promise<AgentResponse> {
     return {
       raw: this.rawResponse,
       parsed: undefined,

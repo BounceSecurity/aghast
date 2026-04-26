@@ -7,16 +7,17 @@ import {
   runMultiScan,
   generateScanId,
 } from '../src/scan-runner.js';
+import { getRegisteredDiscoveries, registerDiscovery, unregisterDiscovery } from '../src/discovery.js';
 import type { SecurityCheck, CheckDetails } from '../src/types.js';
-import type { AIProvider, AIResponse, CheckResponse } from '../src/types.js';
+import type { AgentProvider, AgentResponse, CheckResponse } from '../src/types.js';
 import { FatalProviderError } from '../src/types.js';
 import {
   createPassProvider,
   createPassProviderWithTokens,
   createMalformedProvider,
   createTimeoutProvider,
-  MockAIProvider,
-} from './mocks/mock-ai-provider.js';
+  MockAgentProvider,
+} from './mocks/mock-agent-provider.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
@@ -91,7 +92,7 @@ describe('runMultiScan (single check)', () => {
     const results = await runMultiScan({
       repositoryPath: fixtureRepo,
       checks: [makeSqlCheck()],
-      aiProvider: provider,
+      agentProvider: provider,
     });
 
     assert.equal(results.version, pkgVersion);
@@ -110,11 +111,11 @@ describe('runMultiScan (single check)', () => {
     assert.ok(results.startTime);
     assert.ok(results.endTime);
     assert.ok(results.executionTime >= 0);
-    assert.equal(results.aiProvider.name, 'claude-code');
+    assert.equal(results.agentProvider.name, 'claude-code');
   });
 
   it('produces FAIL result with enriched issues', async () => {
-    const provider = new MockAIProvider({
+    const provider = new MockAgentProvider({
       response: {
         issues: [
           {
@@ -130,7 +131,7 @@ describe('runMultiScan (single check)', () => {
     const results = await runMultiScan({
       repositoryPath: fixtureRepo,
       checks: [makeSqlCheck()],
-      aiProvider: provider,
+      agentProvider: provider,
     });
 
     assert.equal(results.checks[0].status, 'FAIL');
@@ -157,7 +158,7 @@ describe('runMultiScan (single check)', () => {
     const results = await runMultiScan({
       repositoryPath: fixtureRepo,
       checks: [makeSqlCheck()],
-      aiProvider: provider,
+      agentProvider: provider,
     });
 
     assert.equal(results.checks[0].status, 'ERROR');
@@ -168,12 +169,12 @@ describe('runMultiScan (single check)', () => {
     assert.equal(results.summary.errorChecks, 1);
   });
 
-  it('produces ERROR result when AI provider throws', async () => {
+  it('produces ERROR result when agent provider throws', async () => {
     const provider = createTimeoutProvider();
     const results = await runMultiScan({
       repositoryPath: fixtureRepo,
       checks: [makeSqlCheck()],
-      aiProvider: provider,
+      agentProvider: provider,
     });
 
     assert.equal(results.checks[0].status, 'ERROR');
@@ -188,19 +189,19 @@ describe('runMultiScan (single check)', () => {
     const results = await runMultiScan({
       repositoryPath: fixtureRepo,
       checks: [makeSqlCheck()],
-      aiProvider: provider,
+      agentProvider: provider,
     });
 
     assert.ok(results.checks[0].executionTime >= 0);
     assert.ok(results.executionTime >= 0);
   });
 
-  it('sends prompt with check instructions to AI provider', async () => {
+  it('sends prompt with check instructions to agent provider', async () => {
     const provider = createPassProvider();
     await runMultiScan({
       repositoryPath: fixtureRepo,
       checks: [makeSqlCheck()],
-      aiProvider: provider,
+      agentProvider: provider,
     });
 
     assert.equal(provider.callHistory.length, 1);
@@ -214,7 +215,7 @@ describe('runMultiScan (single check)', () => {
   });
 
   it('handles issues for non-existent files gracefully (no codeSnippet)', async () => {
-    const provider = new MockAIProvider({
+    const provider = new MockAgentProvider({
       response: {
         issues: [
           {
@@ -230,7 +231,7 @@ describe('runMultiScan (single check)', () => {
     const results = await runMultiScan({
       repositoryPath: fixtureRepo,
       checks: [makeSqlCheck()],
-      aiProvider: provider,
+      agentProvider: provider,
     });
 
     assert.equal(results.checks[0].status, 'FAIL');
@@ -243,7 +244,7 @@ describe('runMultiScan (single check)', () => {
     const results = await runMultiScan({
       repositoryPath: fixtureRepo,
       checks: [makeSqlCheck()],
-      aiProvider: provider,
+      agentProvider: provider,
     });
 
     // ISO 8601 format
@@ -253,7 +254,7 @@ describe('runMultiScan (single check)', () => {
   });
 
   it('propagates severity and confidence from check config to issues', async () => {
-    const provider = new MockAIProvider({
+    const provider = new MockAgentProvider({
       response: {
         issues: [
           {
@@ -273,7 +274,7 @@ describe('runMultiScan (single check)', () => {
     const results = await runMultiScan({
       repositoryPath: fixtureRepo,
       checks: [checkWithMetadata],
-      aiProvider: provider,
+      agentProvider: provider,
     });
 
     const issue = results.issues[0];
@@ -282,7 +283,7 @@ describe('runMultiScan (single check)', () => {
   });
 
   it('issues have no severity/confidence when check config omits them', async () => {
-    const provider = new MockAIProvider({
+    const provider = new MockAgentProvider({
       response: {
         issues: [
           {
@@ -298,7 +299,7 @@ describe('runMultiScan (single check)', () => {
     const results = await runMultiScan({
       repositoryPath: fixtureRepo,
       checks: [makeSqlCheck()],
-      aiProvider: provider,
+      agentProvider: provider,
     });
 
     const issue = results.issues[0];
@@ -311,7 +312,7 @@ describe('runMultiScan (single check)', () => {
     const results = await runMultiScan({
       repositoryPath: fixtureRepo,
       checks: [makeSqlCheck()],
-      aiProvider: provider,
+      agentProvider: provider,
     });
 
     // branch and commit should only be inside repository, not at top level
@@ -332,7 +333,7 @@ describe('runMultiScan (multiple checks)', () => {
         makeCheckAndDetails('check-1', 'Check One'),
         makeCheckAndDetails('check-2', 'Check Two'),
       ],
-      aiProvider: provider,
+      agentProvider: provider,
     });
 
     assert.equal(results.checks.length, 2);
@@ -347,7 +348,7 @@ describe('runMultiScan (multiple checks)', () => {
   });
 
   it('aggregates results from mix of PASS and FAIL checks', async () => {
-    const provider = new MockAIProvider();
+    const provider = new MockAgentProvider();
     provider.setResponseQueue([
       { issues: [] }, // PASS for first check
       {
@@ -363,7 +364,7 @@ describe('runMultiScan (multiple checks)', () => {
         makeCheckAndDetails('check-pass', 'Pass Check'),
         makeCheckAndDetails('check-fail', 'Fail Check'),
       ],
-      aiProvider: provider,
+      agentProvider: provider,
     });
 
     assert.equal(results.summary.totalChecks, 2);
@@ -373,7 +374,7 @@ describe('runMultiScan (multiple checks)', () => {
   });
 
   it('issues from all checks appear in flat list with correct checkId/checkName', async () => {
-    const provider = new MockAIProvider();
+    const provider = new MockAgentProvider();
     provider.setResponseQueue([
       {
         issues: [
@@ -393,7 +394,7 @@ describe('runMultiScan (multiple checks)', () => {
         makeCheckAndDetails('check-a', 'Check A'),
         makeCheckAndDetails('check-b', 'Check B'),
       ],
-      aiProvider: provider,
+      agentProvider: provider,
     });
 
     assert.equal(results.issues.length, 2);
@@ -404,7 +405,7 @@ describe('runMultiScan (multiple checks)', () => {
   });
 
   it('handles ERROR in one check while other checks succeed', async () => {
-    const provider = new MockAIProvider();
+    const provider = new MockAgentProvider();
     provider.setResponseQueue([
       { issues: [] }, // PASS
     ]);
@@ -417,7 +418,7 @@ describe('runMultiScan (multiple checks)', () => {
         makeCheckAndDetails('check-ok', 'OK Check'),
         makeCheckAndDetails('check-err', 'Error Check'),
       ],
-      aiProvider: provider,
+      agentProvider: provider,
     });
 
     assert.equal(results.summary.totalChecks, 2);
@@ -432,7 +433,7 @@ describe('runMultiScan (multiple checks)', () => {
     const results = await runMultiScan({
       repositoryPath: fixtureRepo,
       checks: [],
-      aiProvider: provider,
+      agentProvider: provider,
     });
 
     assert.equal(results.checks.length, 0);
@@ -446,7 +447,7 @@ describe('runMultiScan (multiple checks)', () => {
   });
 
   it('executes checks sequentially (order preserved)', async () => {
-    const provider = new MockAIProvider();
+    const provider = new MockAgentProvider();
     provider.setResponseQueue([
       { issues: [] },
       { issues: [] },
@@ -460,7 +461,7 @@ describe('runMultiScan (multiple checks)', () => {
         makeCheckAndDetails('second', 'Second'),
         makeCheckAndDetails('third', 'Third'),
       ],
-      aiProvider: provider,
+      agentProvider: provider,
     });
 
     assert.equal(results.checks[0].checkId, 'first');
@@ -514,7 +515,7 @@ describe('runMultiScan (multi-target checks)', () => {
     const results = await runMultiScan({
       repositoryPath: fixtureRepo,
       checks: [makeMultiTargetCheck()],
-      aiProvider: provider,
+      agentProvider: provider,
     });
 
     assert.equal(results.checks[0].status, 'PASS');
@@ -525,7 +526,7 @@ describe('runMultiScan (multi-target checks)', () => {
 
   it('3 targets, 1 has issues → FAIL with enriched issues', async () => {
     process.env.AGHAST_MOCK_SEMGREP = multiTargetSarif;
-    const provider = new MockAIProvider();
+    const provider = new MockAgentProvider();
     provider.setResponseQueue([
       { issues: [] }, // target 1: pass
       {
@@ -542,7 +543,7 @@ describe('runMultiScan (multi-target checks)', () => {
     const results = await runMultiScan({
       repositoryPath: fixtureRepo,
       checks: [makeMultiTargetCheck()],
-      aiProvider: provider,
+      agentProvider: provider,
     });
 
     assert.equal(results.checks[0].status, 'FAIL');
@@ -560,7 +561,7 @@ describe('runMultiScan (multi-target checks)', () => {
 
   it('3 targets, 1 AI error → ERROR', async () => {
     process.env.AGHAST_MOCK_SEMGREP = multiTargetSarif;
-    const provider = new MockAIProvider();
+    const provider = new MockAgentProvider();
     provider.setResponseQueue([
       { issues: [] }, // target 1: pass
       { issues: [] }, // target 2: pass
@@ -571,7 +572,7 @@ describe('runMultiScan (multi-target checks)', () => {
     const results = await runMultiScan({
       repositoryPath: fixtureRepo,
       checks: [makeMultiTargetCheck()],
-      aiProvider: provider,
+      agentProvider: provider,
     });
 
     assert.equal(results.checks[0].status, 'ERROR');
@@ -610,7 +611,7 @@ describe('runMultiScan (multi-target checks)', () => {
     const results = await runMultiScan({
       repositoryPath: fixtureRepo,
       checks: [makeMultiTargetCheck()],
-      aiProvider: mixedProvider,
+      agentProvider: mixedProvider,
     });
 
     assert.equal(results.checks[0].status, 'FAIL');
@@ -626,7 +627,7 @@ describe('runMultiScan (multi-target checks)', () => {
     const results = await runMultiScan({
       repositoryPath: fixtureRepo,
       checks: [makeMultiTargetCheck()],
-      aiProvider: provider,
+      agentProvider: provider,
     });
 
     assert.equal(results.checks[0].status, 'PASS');
@@ -644,7 +645,7 @@ describe('runMultiScan (multi-target checks)', () => {
       checks: [makeMultiTargetCheck({
         checkTarget: { type: 'targeted', discovery: 'semgrep', rules: 'unused.yaml', maxTargets: 1 },
       })],
-      aiProvider: provider,
+      agentProvider: provider,
     });
 
     assert.equal(results.checks[0].targetsAnalyzed, 1);
@@ -660,21 +661,21 @@ describe('runMultiScan (multi-target checks)', () => {
       checks: [makeMultiTargetCheck({
         checkTarget: { type: 'targeted', discovery: 'semgrep', rules: 'unused.yaml', maxTargets: 2 },
       })],
-      aiProvider: provider,
+      agentProvider: provider,
     });
 
     assert.equal(results.checks[0].targetsAnalyzed, 2);
     assert.equal(provider.callHistory.length, 2);
   });
 
-  it('target location embedded in prompt sent to AI provider', async () => {
+  it('target location embedded in prompt sent to agent provider', async () => {
     process.env.AGHAST_MOCK_SEMGREP = multiTargetSarif;
     const provider = createPassProvider();
 
     await runMultiScan({
       repositoryPath: fixtureRepo,
       checks: [makeMultiTargetCheck()],
-      aiProvider: provider,
+      agentProvider: provider,
     });
 
     assert.equal(provider.callHistory.length, 3);
@@ -693,9 +694,55 @@ describe('runMultiScan (multi-target checks)', () => {
     assert.ok(provider.callHistory[2].instructions.includes('- Lines: 1-2'));
   });
 
+  it('agentOptions from discovery propagate to agent provider executeCheck', async () => {
+    // Register a one-off test discovery that returns a single target with
+    // a known agentOptions value, so we can assert the scan runner forwards
+    // it to provider.executeCheck() without relying on a real discovery.
+    const TEST_DISCOVERY = 'test-agent-options';
+    // Guard against test-ordering issues: assert the name is not already
+    // registered before we overwrite it with our test discovery. Non-mutating
+    // so a leak-source test failure is not silently self-healed on rerun.
+    assert.ok(
+      !getRegisteredDiscoveries().includes(TEST_DISCOVERY),
+      `${TEST_DISCOVERY} unexpectedly present in discovery registry — find and fix the leaking test`,
+    );
+    try {
+      registerDiscovery({
+        name: TEST_DISCOVERY,
+        defaultGenericPrompt: 'generic-instructions.md',
+        needsInstructions: false,
+        async discover() {
+          return [
+            {
+              file: 'src/example.ts',
+              startLine: 1,
+              endLine: 1,
+              label: '[test target]',
+              agentOptions: { maxTurns: 7 },
+            },
+          ];
+        },
+      });
+
+      const provider = createPassProvider();
+      await runMultiScan({
+        repositoryPath: fixtureRepo,
+        checks: [makeMultiTargetCheck({
+          checkTarget: { type: 'targeted', discovery: TEST_DISCOVERY },
+        })],
+        agentProvider: provider,
+      });
+
+      assert.equal(provider.callHistory.length, 1);
+      assert.deepEqual(provider.callHistory[0].options, { maxTurns: 7 });
+    } finally {
+      unregisterDiscovery(TEST_DISCOVERY);
+    }
+  });
+
   it('issues include codeSnippet from fixture file', async () => {
     process.env.AGHAST_MOCK_SEMGREP = multiTargetSarif;
-    const provider = new MockAIProvider({
+    const provider = new MockAgentProvider({
       response: {
         issues: [{
           file: 'src/example.ts',
@@ -709,7 +756,7 @@ describe('runMultiScan (multi-target checks)', () => {
     const results = await runMultiScan({
       repositoryPath: fixtureRepo,
       checks: [makeMultiTargetCheck()],
-      aiProvider: provider,
+      agentProvider: provider,
     });
 
     // All 3 targets return the same issue
@@ -722,7 +769,7 @@ describe('runMultiScan (multi-target checks)', () => {
 
   it('severity and confidence propagated in multi-target mode', async () => {
     process.env.AGHAST_MOCK_SEMGREP = multiTargetSarif;
-    const provider = new MockAIProvider({
+    const provider = new MockAgentProvider({
       response: {
         issues: [{
           file: 'src/example.ts',
@@ -737,7 +784,7 @@ describe('runMultiScan (multi-target checks)', () => {
     const results = await runMultiScan({
       repositoryPath: fixtureRepo,
       checks: [check],
-      aiProvider: provider,
+      agentProvider: provider,
     });
 
     for (const issue of results.issues) {
@@ -750,21 +797,21 @@ describe('runMultiScan (multi-target checks)', () => {
 // --- runMultiScan tests (concurrency) ---
 
 /**
- * Create a tracking AI provider that records concurrency metrics.
+ * Create a tracking agent provider that records concurrency metrics.
  * Uses closures to safely track active/max under concurrent execution.
  */
 function createTrackingProvider(
   delayMs: number,
   responseFn?: (callIndex: number) => CheckResponse,
-): { provider: AIProvider; getMaxActive: () => number; getCurrentActive: () => number } {
+): { provider: AgentProvider; getMaxActive: () => number; getCurrentActive: () => number } {
   let currentActive = 0;
   let maxActive = 0;
   let callIndex = 0;
 
-  const provider: AIProvider = {
+  const provider: AgentProvider = {
     async initialize() {},
     async validateConfig() { return true; },
-    async executeCheck(_instructions: string, _repositoryPath: string): Promise<AIResponse> {
+    async executeCheck(_instructions: string, _repositoryPath: string): Promise<AgentResponse> {
       const myIndex = callIndex++;
       currentActive++;
       if (currentActive > maxActive) maxActive = currentActive;
@@ -803,7 +850,7 @@ describe('runMultiScan (concurrency)', () => {
     const results = await runMultiScan({
       repositoryPath: fixtureRepo,
       checks: [makeMultiTargetCheck()],
-      aiProvider: provider,
+      agentProvider: provider,
       concurrency: 3,
     });
 
@@ -820,7 +867,7 @@ describe('runMultiScan (concurrency)', () => {
     const results = await runMultiScan({
       repositoryPath: fixtureRepo,
       checks: [makeMultiTargetCheck()],
-      aiProvider: provider,
+      agentProvider: provider,
     });
 
     assert.equal(results.checks[0].status, 'PASS');
@@ -838,7 +885,7 @@ describe('runMultiScan (concurrency)', () => {
       checks: [makeMultiTargetCheck({
         checkTarget: { type: 'targeted', discovery: 'semgrep', rules: 'unused.yaml', concurrency: 2 },
       })],
-      aiProvider: provider,
+      agentProvider: provider,
       concurrency: 10,
     });
 
@@ -852,10 +899,10 @@ describe('runMultiScan (concurrency)', () => {
     const delays = [100, 10, 50];
     let callIdx = 0;
 
-    const provider: AIProvider = {
+    const provider: AgentProvider = {
       async initialize() {},
       async validateConfig() { return true; },
-      async executeCheck(): Promise<AIResponse> {
+      async executeCheck(): Promise<AgentResponse> {
         const myIdx = callIdx++;
         const delay = delays[myIdx] ?? 10;
         await new Promise((resolve) => setTimeout(resolve, delay));
@@ -874,7 +921,7 @@ describe('runMultiScan (concurrency)', () => {
     const results = await runMultiScan({
       repositoryPath: fixtureRepo,
       checks: [makeMultiTargetCheck()],
-      aiProvider: provider,
+      agentProvider: provider,
       concurrency: 3,
     });
 
@@ -893,7 +940,7 @@ describe('runMultiScan (concurrency)', () => {
     const results = await runMultiScan({
       repositoryPath: fixtureRepo,
       checks: [makeMultiTargetCheck({ checkTarget: { type: 'targeted', discovery: 'semgrep', rules: 'unused-in-mock.yaml', maxTargets: 1 } })],
-      aiProvider: provider,
+      agentProvider: provider,
       concurrency: 5,
     });
 
@@ -917,14 +964,14 @@ describe('runMultiScan (FLAG status)', () => {
   });
 
   it('single check: provider returns flagged:true → status FLAG, flaggedChecks=1', async () => {
-    const provider = new MockAIProvider({
+    const provider = new MockAgentProvider({
       response: { issues: [], flagged: true },
     });
 
     const results = await runMultiScan({
       repositoryPath: fixtureRepo,
       checks: [makeSqlCheck()],
-      aiProvider: provider,
+      agentProvider: provider,
     });
 
     assert.equal(results.checks[0].status, 'FLAG');
@@ -936,7 +983,7 @@ describe('runMultiScan (FLAG status)', () => {
   });
 
   it('FAIL overrides FLAG: issues present even if flagged:true → FAIL', async () => {
-    const provider = new MockAIProvider({
+    const provider = new MockAgentProvider({
       response: {
         issues: [{ file: 'src/example.ts', startLine: 4, endLine: 4, description: 'Issue.' }],
         flagged: true,
@@ -946,7 +993,7 @@ describe('runMultiScan (FLAG status)', () => {
     const results = await runMultiScan({
       repositoryPath: fixtureRepo,
       checks: [makeSqlCheck()],
-      aiProvider: provider,
+      agentProvider: provider,
     });
 
     assert.equal(results.checks[0].status, 'FAIL');
@@ -956,14 +1003,14 @@ describe('runMultiScan (FLAG status)', () => {
 
   it('multi-target: all 3 targets flag → check status FLAG', async () => {
     process.env.AGHAST_MOCK_SEMGREP = multiTargetSarif;
-    const provider = new MockAIProvider({
+    const provider = new MockAgentProvider({
       response: { issues: [], flagged: true },
     });
 
     const results = await runMultiScan({
       repositoryPath: fixtureRepo,
       checks: [makeMultiTargetCheck()],
-      aiProvider: provider,
+      agentProvider: provider,
     });
 
     assert.equal(results.checks[0].status, 'FLAG');
@@ -992,7 +1039,7 @@ describe('runMultiScan (FLAG status)', () => {
     const results = await runMultiScan({
       repositoryPath: fixtureRepo,
       checks: [makeMultiTargetCheck()],
-      aiProvider: mixedFlagProvider,
+      agentProvider: mixedFlagProvider,
     });
 
     assert.equal(results.checks[0].status, 'FLAG');
@@ -1002,7 +1049,7 @@ describe('runMultiScan (FLAG status)', () => {
 
   it('multi-target: FAIL overrides FLAG (some flag, one has issues) → FAIL', async () => {
     process.env.AGHAST_MOCK_SEMGREP = multiTargetSarif;
-    const provider = new MockAIProvider();
+    const provider = new MockAgentProvider();
     provider.setResponseQueue([
       { issues: [], flagged: true }, // target 1: flag
       {
@@ -1014,7 +1061,7 @@ describe('runMultiScan (FLAG status)', () => {
     const results = await runMultiScan({
       repositoryPath: fixtureRepo,
       checks: [makeMultiTargetCheck()],
-      aiProvider: provider,
+      agentProvider: provider,
     });
 
     assert.equal(results.checks[0].status, 'FAIL');
@@ -1029,7 +1076,7 @@ describe('runMultiScan (FLAG status)', () => {
       async validateConfig() { return true; },
       async executeCheck(_instructions: string, _repositoryPath: string) {
         const n = callCount++;
-        if (n === 0) throw new Error('AI provider request timed out after 60000ms');
+        if (n === 0) throw new Error('Agent provider request timed out after 60000ms');
         const response = { issues: [] };
         return { raw: JSON.stringify(response), parsed: response };
       },
@@ -1041,7 +1088,7 @@ describe('runMultiScan (FLAG status)', () => {
         makeCheckAndDetails('check-1', 'Check One'),
         makeCheckAndDetails('check-2', 'Check Two'),
       ],
-      aiProvider: mixedProvider,
+      agentProvider: mixedProvider,
     });
 
     assert.equal(results.checks.length, 2);
@@ -1057,7 +1104,7 @@ describe('runMultiScan (FLAG status)', () => {
     const results = await runMultiScan({
       repositoryPath: fixtureRepo,
       checks: [makeSqlCheck()],
-      aiProvider: provider,
+      agentProvider: provider,
     });
 
     assert.equal(results.checks[0].status, 'ERROR');
@@ -1066,7 +1113,7 @@ describe('runMultiScan (FLAG status)', () => {
   });
 
   it('3 checks, middle errors: all 3 summaries returned, errorChecks=1, passedChecks=2', async () => {
-    const provider = new MockAIProvider();
+    const provider = new MockAgentProvider();
     provider.setResponseQueue([
       { issues: [] }, // check-1: PASS
     ]);
@@ -1105,7 +1152,7 @@ describe('runMultiScan (FLAG status)', () => {
         makeCheckAndDetails('check-2', 'Check Two'),
         makeCheckAndDetails('check-3', 'Check Three'),
       ],
-      aiProvider: sequentialProvider,
+      agentProvider: sequentialProvider,
     });
 
     assert.equal(results.checks.length, 3);
@@ -1136,7 +1183,7 @@ describe('runMultiScan (token usage)', () => {
     const results = await runMultiScan({
       repositoryPath: fixtureRepo,
       checks: [makeSqlCheck()],
-      aiProvider: provider,
+      agentProvider: provider,
     });
 
     assert.ok(results.checks[0].tokenUsage, 'Check summary should have tokenUsage');
@@ -1158,7 +1205,7 @@ describe('runMultiScan (token usage)', () => {
         makeCheckAndDetails('check-1', 'Check One'),
         makeCheckAndDetails('check-2', 'Check Two'),
       ],
-      aiProvider: provider,
+      agentProvider: provider,
     });
 
     // Each check gets 200/100/300
@@ -1173,7 +1220,7 @@ describe('runMultiScan (token usage)', () => {
     const results = await runMultiScan({
       repositoryPath: fixtureRepo,
       checks: [makeSqlCheck()],
-      aiProvider: provider,
+      agentProvider: provider,
     });
 
     assert.equal(results.checks[0].tokenUsage, undefined);
@@ -1187,7 +1234,7 @@ describe('runMultiScan (token usage)', () => {
     const results = await runMultiScan({
       repositoryPath: fixtureRepo,
       checks: [makeMultiTargetCheck()],
-      aiProvider: provider,
+      agentProvider: provider,
     });
 
     // 3 targets × 50/25/75
@@ -1205,7 +1252,7 @@ describe('runMultiScan (token usage)', () => {
     const results = await runMultiScan({
       repositoryPath: fixtureRepo,
       checks: [makeSqlCheck()],
-      aiProvider: provider,
+      agentProvider: provider,
     });
 
     assert.equal(results.checks[0].status, 'ERROR');
@@ -1259,7 +1306,7 @@ describe('runMultiScan (semgrep-only checks)', () => {
     const results = await runMultiScan({
       repositoryPath: fixtureRepo,
       checks: [makeSemgrepOnlyCheck()],
-      aiProvider: provider,
+      agentProvider: provider,
     });
 
     assert.equal(results.checks[0].status, 'PASS');
@@ -1276,7 +1323,7 @@ describe('runMultiScan (semgrep-only checks)', () => {
     const results = await runMultiScan({
       repositoryPath: fixtureRepo,
       checks: [makeSemgrepOnlyCheck()],
-      aiProvider: provider,
+      agentProvider: provider,
     });
 
     assert.equal(results.checks[0].status, 'FAIL');
@@ -1306,7 +1353,7 @@ describe('runMultiScan (semgrep-only checks)', () => {
     const results = await runMultiScan({
       repositoryPath: fixtureRepo,
       checks: [makeSemgrepOnlyCheck({ severity: 'critical', confidence: 'medium' })],
-      aiProvider: provider,
+      agentProvider: provider,
     });
 
     for (const issue of results.issues) {
@@ -1324,7 +1371,7 @@ describe('runMultiScan (semgrep-only checks)', () => {
       checks: [makeSemgrepOnlyCheck({
         checkTarget: { type: 'static', discovery: 'semgrep', rules: 'unused.yaml', maxTargets: 1 },
       })],
-      aiProvider: provider,
+      agentProvider: provider,
     });
 
     assert.equal(results.checks[0].targetsAnalyzed, 1);
@@ -1340,7 +1387,7 @@ describe('runMultiScan (semgrep-only checks)', () => {
     const results = await runMultiScan({
       repositoryPath: fixtureRepo,
       checks: [makeSemgrepOnlyCheck()],
-      aiProvider: provider,
+      agentProvider: provider,
     });
 
     assert.equal(results.checks[0].status, 'ERROR');
@@ -1356,7 +1403,7 @@ describe('runMultiScan (semgrep-only checks)', () => {
     const results = await runMultiScan({
       repositoryPath: fixtureRepo,
       checks: [makeSemgrepOnlyCheck()],
-      aiProvider: provider,
+      agentProvider: provider,
     });
 
     assert.equal(results.checks[0].tokenUsage, undefined, 'semgrep-only should have no tokenUsage');
@@ -1373,7 +1420,7 @@ describe('runMultiScan (semgrep-only checks)', () => {
         makeSemgrepOnlyCheck(),
         makeCheckAndDetails('ai-check', 'AI Check'),
       ],
-      aiProvider: provider,
+      agentProvider: provider,
     });
 
     assert.equal(results.checks.length, 2);
@@ -1402,7 +1449,7 @@ describe('runMultiScan (fatal error abort)', () => {
 
   it('FatalProviderError aborts remaining checks', async () => {
     let callCount = 0;
-    const fatalProvider: AIProvider = {
+    const fatalProvider: AgentProvider = {
       async initialize() {},
       async validateConfig() { return true; },
       async executeCheck() {
@@ -1413,7 +1460,7 @@ describe('runMultiScan (fatal error abort)', () => {
           return { raw: JSON.stringify(response), parsed: response };
         }
         // Check 2: fatal error
-        throw new FatalProviderError('AI provider authentication failed (401)');
+        throw new FatalProviderError('Agent provider authentication failed (401)');
       },
     };
 
@@ -1424,7 +1471,7 @@ describe('runMultiScan (fatal error abort)', () => {
         makeCheckAndDetails('check-2', 'Check Two'),
         makeCheckAndDetails('check-3', 'Check Three'),
       ],
-      aiProvider: fatalProvider,
+      agentProvider: fatalProvider,
     });
 
     assert.equal(results.checks.length, 3, 'All 3 checks should have summaries');
@@ -1440,12 +1487,12 @@ describe('runMultiScan (fatal error abort)', () => {
 
   it('non-fatal errors still continue to next check (regression)', async () => {
     let callCount = 0;
-    const mixedProvider: AIProvider = {
+    const mixedProvider: AgentProvider = {
       async initialize() {},
       async validateConfig() { return true; },
       async executeCheck() {
         const n = callCount++;
-        if (n === 0) throw new Error('AI provider request timed out after 60000ms');
+        if (n === 0) throw new Error('Agent provider request timed out after 60000ms');
         const response = { issues: [] };
         return { raw: JSON.stringify(response), parsed: response };
       },
@@ -1457,7 +1504,7 @@ describe('runMultiScan (fatal error abort)', () => {
         makeCheckAndDetails('check-1', 'Check One'),
         makeCheckAndDetails('check-2', 'Check Two'),
       ],
-      aiProvider: mixedProvider,
+      agentProvider: mixedProvider,
     });
 
     assert.equal(results.checks.length, 2);
@@ -1467,11 +1514,11 @@ describe('runMultiScan (fatal error abort)', () => {
   });
 
   it('FatalProviderError on first check aborts all remaining', async () => {
-    const fatalProvider: AIProvider = {
+    const fatalProvider: AgentProvider = {
       async initialize() {},
       async validateConfig() { return true; },
       async executeCheck() {
-        throw new FatalProviderError('AI provider rate limit reached');
+        throw new FatalProviderError('Agent provider rate limit reached');
       },
     };
 
@@ -1481,7 +1528,7 @@ describe('runMultiScan (fatal error abort)', () => {
         makeCheckAndDetails('check-1', 'Check One'),
         makeCheckAndDetails('check-2', 'Check Two'),
       ],
-      aiProvider: fatalProvider,
+      agentProvider: fatalProvider,
     });
 
     assert.equal(results.checks.length, 2, 'Both checks should have summaries');
@@ -1494,11 +1541,11 @@ describe('runMultiScan (fatal error abort)', () => {
   it('FatalProviderError in multi-target check aborts remaining checks', async () => {
     process.env.AGHAST_MOCK_SEMGREP = multiTargetSarif;
 
-    const fatalProvider: AIProvider = {
+    const fatalProvider: AgentProvider = {
       async initialize() {},
       async validateConfig() { return true; },
       async executeCheck() {
-        throw new FatalProviderError('AI provider authentication failed (401)');
+        throw new FatalProviderError('Agent provider authentication failed (401)');
       },
     };
 
@@ -1524,7 +1571,7 @@ describe('runMultiScan (fatal error abort)', () => {
         multiTargetCheck,
         makeCheckAndDetails('check-2', 'Check Two'),
       ],
-      aiProvider: fatalProvider,
+      agentProvider: fatalProvider,
     });
 
     assert.equal(results.checks.length, 2, 'Both checks should have summaries');

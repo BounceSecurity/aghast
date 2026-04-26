@@ -163,6 +163,9 @@ export async function loadCheckDefinition(checkFolderPath: string): Promise<Chec
     if (ct.concurrency !== undefined && (typeof ct.concurrency !== 'number' || ct.concurrency <= 0 || !Number.isInteger(ct.concurrency))) {
       throw new Error(`Check definition "${defPath}": "checkTarget.concurrency" must be a positive integer`);
     }
+    if (ct.maxIssuesPerTarget !== undefined && (typeof ct.maxIssuesPerTarget !== 'number' || ct.maxIssuesPerTarget < 1 || !Number.isInteger(ct.maxIssuesPerTarget))) {
+      throw new Error(`Check definition "${defPath}": "checkTarget.maxIssuesPerTarget" must be a positive integer`);
+    }
     // Validate discovery field is present for targeted/static types (actual type
     // validation happens in validateCheck, after repo filtering, so unknown
     // discovery types don't crash the entire scan for unrelated checks)
@@ -521,7 +524,7 @@ export async function loadCheckDetails(
 // --- Path Filtering ---
 // Note: These path filtering functions are implemented and tested but not yet
 // wired into the scan execution path. They will be integrated in a future
-// iteration when the AI provider interface supports scoped file lists.
+// iteration when the agent provider interface supports scoped file lists.
 
 /**
  * Filter files to those matching applicablePaths globs.

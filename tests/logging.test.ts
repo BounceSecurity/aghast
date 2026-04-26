@@ -106,7 +106,7 @@ test('ConsoleHandler: truncates debug data at 200 chars', () => {
   }
 });
 
-test('ConsoleHandler: trace data is not truncated', () => {
+test('ConsoleHandler: trace data is base64-encoded', () => {
   const handler = new ConsoleHandler('trace');
   const logs: string[] = [];
   const origLog = console.log;
@@ -117,7 +117,12 @@ test('ConsoleHandler: trace data is not truncated', () => {
     handler.handle({ timestamp: '2025-01-01', level: 'trace', tag: 'test', message: 'data', data: longData });
 
     assert.equal(logs.length, 1);
-    assert.ok(logs[0].includes('y'.repeat(300)), 'Should contain full data');
+    assert.ok(logs[0].includes('[base64]'), 'Should contain base64 marker');
+    // Verify the base64 decodes back to original data
+    const b64Match = logs[0].match(/\[base64\] (.+)$/);
+    assert.ok(b64Match, 'Should have base64 content');
+    const decoded = Buffer.from(b64Match![1], 'base64').toString('utf-8');
+    assert.equal(decoded, longData, 'Decoded base64 should match original');
   } finally {
     console.log = origLog;
   }
@@ -424,7 +429,12 @@ test('logDebugFull dispatches as trace level', async () => {
     await closeAllHandlers();
     const content = await readFile(logPath, 'utf-8');
     assert.ok(content.includes('[trace]'));
-    assert.ok(content.includes('complete-string'));
+    assert.ok(content.includes('[base64]'), 'Trace data should be base64-encoded');
+    // Verify the base64 decodes back to original data
+    const b64Match = content.match(/\[base64\] (.+)/);
+    assert.ok(b64Match, 'Should have base64 content');
+    const decoded = Buffer.from(b64Match![1].trim(), 'base64').toString('utf-8');
+    assert.equal(decoded, 'complete-string');
   } finally {
     try { await unlink(logPath); } catch { /* ignore */ }
   }

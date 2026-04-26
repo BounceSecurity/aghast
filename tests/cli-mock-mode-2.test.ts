@@ -1,5 +1,5 @@
 /**
- * Integration tests for CLI mock AI provider mode (part 2).
+ * Integration tests for CLI mock agent provider mode (part 2).
  *
  * CLI flags, env vars, runtime config, ERROR/FLAG scenarios, debug mode,
  * and semgrep-only checks.
@@ -81,7 +81,7 @@ describe('CLI: --output flag', () => {
   });
 });
 
-describe('CLI: ANTHROPIC_API_KEY and --ai-provider flag', () => {
+describe('CLI: ANTHROPIC_API_KEY and --agent-provider flag', () => {
   afterEach(cleanupOutput);
 
   it('missing ANTHROPIC_API_KEY exits 1 with error message', async () => {
@@ -107,27 +107,27 @@ describe('CLI: ANTHROPIC_API_KEY and --ai-provider flag', () => {
     assert.ok(!stderr.includes('ANTHROPIC_API_KEY environment variable is required'));
   });
 
-  it('unknown --ai-provider exits 1 with error message', async () => {
+  it('unknown --agent-provider exits 1 with error message', async () => {
     const { exitCode, stderr } = await runCLI({
       AGHAST_MOCK_AI: undefined,
-    }, [fixtureRepo, '--config-dir', singleCheckConfigDir, '--ai-provider', 'unknown-provider']);
+    }, [fixtureRepo, '--config-dir', singleCheckConfigDir, '--agent-provider', 'unknown-provider']);
     assert.equal(exitCode, 1);
-    assert.ok(stderr.includes('Unknown AI provider'));
+    assert.ok(stderr.includes('Unknown agent provider'));
   });
 
-  it('unknown --ai-provider error message lists known providers from registry', async () => {
+  it('unknown --agent-provider error message lists known providers from registry', async () => {
     const { exitCode, stderr } = await runCLI({
       AGHAST_MOCK_AI: undefined,
-    }, [fixtureRepo, '--config-dir', singleCheckConfigDir, '--ai-provider', 'unknown-provider']);
+    }, [fixtureRepo, '--config-dir', singleCheckConfigDir, '--agent-provider', 'unknown-provider']);
     assert.equal(exitCode, 1);
-    assert.ok(stderr.includes('Unknown AI provider'), 'Should mention unknown provider');
+    assert.ok(stderr.includes('Unknown agent provider'), 'Should mention unknown provider');
     assert.ok(stderr.includes('claude-code'), 'Error should list claude-code as a valid option from registry');
   });
 
-  it('--ai-provider claude-code (explicit) with mock mode exits 0', async () => {
+  it('--agent-provider claude-code (explicit) with mock mode exits 0', async () => {
     const { exitCode } = await runCLI({
       AGHAST_MOCK_AI: 'true',
-    }, [fixtureRepo, '--config-dir', singleCheckConfigDir, '--ai-provider', 'claude-code']);
+    }, [fixtureRepo, '--config-dir', singleCheckConfigDir, '--agent-provider', 'claude-code']);
     assert.equal(exitCode, 0);
   });
 
@@ -475,16 +475,16 @@ describe('CLI mock mode: semgrep-only checks', () => {
     assert.ok(!combined.includes('Using model'), 'Semgrep-only scan should not log "Using model"');
   });
 
-  it('semgrep-only scan sets aiProvider.name to "none" in results', async () => {
+  it('semgrep-only scan sets agentProvider.name to "none" in results', async () => {
     await runCLI(
       { AGHAST_MOCK_AI: 'true', AGHAST_MOCK_SEMGREP: emptyResultsSarif },
       [fixtureRepo, '--config-dir', semgrepOnlyConfigDir],
     );
 
     const results = await readResults();
-    const aiProvider = results.aiProvider as Record<string, unknown>;
-    assert.equal(aiProvider.name, 'none', 'aiProvider.name should be "none" for semgrep-only scans');
-    assert.deepEqual(aiProvider.models, [], 'aiProvider.models should be empty for semgrep-only scans');
+    const agentProvider = results.agentProvider as Record<string, unknown>;
+    assert.equal(agentProvider.name, 'none', 'agentProvider.name should be "none" for semgrep-only scans');
+    assert.deepEqual(agentProvider.models, [], 'agentProvider.models should be empty for semgrep-only scans');
   });
 
   it('mixed scan (AI + semgrep-only) still logs "Using model"', async () => {
@@ -667,17 +667,17 @@ describe('CLI: per-check model override', () => {
     );
   });
 
-  it('per-check model appears in results aiProvider.models', async () => {
+  it('per-check model appears in results agentProvider.models', async () => {
     await runCLI(
       { AGHAST_MOCK_AI: 'true' },
       [fixtureRepo, '--config-dir', perCheckModelConfigDir],
     );
 
     const results = await readResults();
-    const aiProvider = results.aiProvider as { name: string; models: string[] };
+    const agentProvider = results.agentProvider as { name: string; models: string[] };
     assert.ok(
-      aiProvider.models.includes('claude-sonnet-4-6'),
-      `models array should include the per-check model, got: ${JSON.stringify(aiProvider.models)}`,
+      agentProvider.models.includes('claude-sonnet-4-6'),
+      `models array should include the per-check model, got: ${JSON.stringify(agentProvider.models)}`,
     );
   });
 

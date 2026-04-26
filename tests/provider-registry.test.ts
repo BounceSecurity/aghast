@@ -1,5 +1,5 @@
 /**
- * Unit tests for the provider registry and AIProvider interface compliance.
+ * Unit tests for the provider registry and AgentProvider interface compliance.
  */
 
 import { describe, it } from 'node:test';
@@ -13,25 +13,27 @@ import {
   DEFAULT_PROVIDER_NAME,
 } from '../src/provider-registry.js';
 import { ClaudeCodeProvider } from '../src/claude-code-provider.js';
+import { OpenCodeProvider } from '../src/opencode-provider.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-// Helper to dynamically import MockAIProvider (avoids tsc emitting stray .js files)
+// Helper to dynamically import MockAgentProvider (avoids tsc emitting stray .js files)
 async function getMockProvider() {
-  const mockModulePath = pathToFileURL(resolve(__dirname, 'mocks', 'mock-ai-provider.js')).href;
-  const { MockAIProvider } = await import(mockModulePath);
-  return MockAIProvider;
+  const mockModulePath = pathToFileURL(resolve(__dirname, 'mocks', 'mock-agent-provider.js')).href;
+  const { MockAgentProvider } = await import(mockModulePath);
+  return MockAgentProvider;
 }
 
 // ─── Provider registry ────────────────────────────────────────────────────────
 
 describe('Provider registry', () => {
-  it('getProviderNames() returns [\'claude-code\'] by default', () => {
+  it('getProviderNames() includes claude-code and opencode', () => {
     const names = getProviderNames();
     assert.ok(names.includes('claude-code'), `Expected 'claude-code' in ${JSON.stringify(names)}`);
+    assert.ok(names.includes('opencode'), `Expected 'opencode' in ${JSON.stringify(names)}`);
   });
 
-  it('createProviderByName(\'claude-code\') returns an object with all AIProvider methods', () => {
+  it('createProviderByName(\'claude-code\') returns an object with all AgentProvider methods', () => {
     const provider = createProviderByName('claude-code');
     assert.equal(typeof provider.initialize, 'function');
     assert.equal(typeof provider.executeCheck, 'function');
@@ -43,7 +45,7 @@ describe('Provider registry', () => {
       () => createProviderByName('unknown-xyz'),
       (err: unknown) => {
         assert.ok(err instanceof Error);
-        assert.ok(err.message.includes('Unknown AI provider'), `message: ${err.message}`);
+        assert.ok(err.message.includes('Unknown agent provider'), `message: ${err.message}`);
         assert.ok(err.message.includes('claude-code'), `should list claude-code: ${err.message}`);
         return true;
       },
@@ -94,9 +96,9 @@ describe('Provider registry', () => {
   });
 });
 
-// ─── AIProvider interface compliance — ClaudeCodeProvider ─────────────────────
+// ─── AgentProvider interface compliance — ClaudeCodeProvider ─────────────────────
 
-describe('AIProvider interface compliance — ClaudeCodeProvider', () => {
+describe('AgentProvider interface compliance — ClaudeCodeProvider', () => {
   it('has initialize method', () => {
     const provider = new ClaudeCodeProvider();
     assert.equal(typeof provider.initialize, 'function');
@@ -163,52 +165,77 @@ describe('AIProvider interface compliance — ClaudeCodeProvider', () => {
   });
 });
 
-// ─── AIProvider interface compliance — MockAIProvider ─────────────────────────
+// ─── AgentProvider interface compliance — OpenCodeProvider ──────────────────────
 
-describe('AIProvider interface compliance — MockAIProvider', () => {
+describe('AgentProvider interface compliance — OpenCodeProvider', () => {
+  it('has all required AgentProvider methods', () => {
+    const provider = new OpenCodeProvider();
+    assert.equal(typeof provider.initialize, 'function');
+    assert.equal(typeof provider.executeCheck, 'function');
+    assert.equal(typeof provider.validateConfig, 'function');
+  });
+
+  it('has optional AgentProvider methods', () => {
+    const provider = new OpenCodeProvider();
+    assert.equal(typeof provider.getModelName, 'function');
+    assert.equal(typeof provider.setModel, 'function');
+    assert.equal(typeof provider.enableDebug, 'function');
+    assert.equal(typeof provider.checkPrerequisites, 'function');
+    assert.equal(typeof provider.cleanup, 'function');
+  });
+
+  it('createProviderByName(\'opencode\') returns an OpenCodeProvider', () => {
+    const provider = createProviderByName('opencode');
+    assert.ok(provider instanceof OpenCodeProvider);
+  });
+});
+
+// ─── AgentProvider interface compliance — MockAgentProvider ─────────────────────────
+
+describe('AgentProvider interface compliance — MockAgentProvider', () => {
   it('has initialize method', async () => {
-    const MockAIProvider = await getMockProvider();
-    const provider = new MockAIProvider();
+    const MockAgentProvider = await getMockProvider();
+    const provider = new MockAgentProvider();
     assert.equal(typeof provider.initialize, 'function');
   });
 
   it('has executeCheck method', async () => {
-    const MockAIProvider = await getMockProvider();
-    const provider = new MockAIProvider();
+    const MockAgentProvider = await getMockProvider();
+    const provider = new MockAgentProvider();
     assert.equal(typeof provider.executeCheck, 'function');
   });
 
   it('has validateConfig method', async () => {
-    const MockAIProvider = await getMockProvider();
-    const provider = new MockAIProvider();
+    const MockAgentProvider = await getMockProvider();
+    const provider = new MockAgentProvider();
     assert.equal(typeof provider.validateConfig, 'function');
   });
 
   it('validateConfig() returns true by default', async () => {
-    const MockAIProvider = await getMockProvider();
-    const provider = new MockAIProvider();
+    const MockAgentProvider = await getMockProvider();
+    const provider = new MockAgentProvider();
     const result = await provider.validateConfig();
     assert.equal(result, true);
   });
 
   it('validateConfig() returns false when configured with validConfig: false', async () => {
-    const MockAIProvider = await getMockProvider();
-    const provider = new MockAIProvider({ validConfig: false });
+    const MockAgentProvider = await getMockProvider();
+    const provider = new MockAgentProvider({ validConfig: false });
     const result = await provider.validateConfig();
     assert.equal(result, false);
   });
 
   it('initialize() sets initialized flag', async () => {
-    const MockAIProvider = await getMockProvider();
-    const provider = new MockAIProvider();
+    const MockAgentProvider = await getMockProvider();
+    const provider = new MockAgentProvider();
     assert.equal(provider.initialized, false);
     await provider.initialize({});
     assert.equal(provider.initialized, true);
   });
 
   it('executeCheck() returns default empty issues response', async () => {
-    const MockAIProvider = await getMockProvider();
-    const provider = new MockAIProvider();
+    const MockAgentProvider = await getMockProvider();
+    const provider = new MockAgentProvider();
     await provider.initialize({});
     const response = await provider.executeCheck('test prompt', '/tmp');
     assert.ok(response.parsed, 'Should have parsed response');

@@ -12,7 +12,7 @@ import { unlink, writeFile } from 'node:fs/promises';
 import { runSemgrep } from '../src/semgrep-runner.js';
 import { parseSARIF } from '../src/sarif-parser.js';
 import { runMultiScan } from '../src/scan-runner.js';
-import { MockAIProvider } from './mocks/mock-ai-provider.js';
+import { MockAgentProvider } from './mocks/mock-agent-provider.js';
 import type { SecurityCheck, CheckDetails } from '../src/types.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -100,7 +100,7 @@ describe('Semgrep integration tests', { skip }, () => {
       delete process.env.AGHAST_MOCK_SEMGREP;
 
       try {
-        const provider = new MockAIProvider({ response: { issues: [] } });
+        const provider = new MockAgentProvider({ response: { issues: [] } });
 
         const check: SecurityCheck = {
           id: 'integ-sqli',
@@ -124,7 +124,7 @@ describe('Semgrep integration tests', { skip }, () => {
         const results = await runMultiScan({
           repositoryPath: testCodebase,
           checks: [{ check, details }],
-          aiProvider: provider,
+          agentProvider: provider,
         });
 
         assert.equal(results.checks.length, 1);

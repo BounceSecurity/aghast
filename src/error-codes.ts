@@ -4,7 +4,7 @@
  * Numbering scheme:
  *   E1xxx — CLI parsing (argument/flag/command errors)
  *   E2xxx — Configuration (config dir, checks, runtime config)
- *   E3xxx — AI provider
+ *   E3xxx — Agent provider
  *   E4xxx — Repository/target validation
  *   E5xxx — Semgrep
  *   E6xxx — OpenAnt
@@ -33,10 +33,15 @@ export const ERROR_CODES = {
   E2004: ec('E2004', 'Invalid check definition'),
   E2005: ec('E2005', 'Configuration error'),
 
-  // E3xxx — AI provider
+  // E3xxx — Agent provider
   E3001: ec('E3001', 'API key missing'),
-  E3002: ec('E3002', 'Unknown AI provider'),
+  E3002: ec('E3002', 'Unknown agent provider'),
+  // E3003 retains "AI" intentionally: it refers to the file containing the
+  // mocked AI/LLM response body, not the agent harness. Same rationale as
+  // AGHAST_MOCK_AI / AGHAST_AI_MODEL — the model and its output are AI
+  // concerns; only the provider/harness layer was renamed to "agent".
   E3003: ec('E3003', 'Mock AI response file not found'),
+  E3004: ec('E3004', 'OpenCode not installed'),
 
   // E4xxx — Repository/target validation
   E4001: ec('E4001', 'Repository path not found'),
