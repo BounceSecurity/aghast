@@ -59,10 +59,11 @@ The `aghast` binary provides subcommands:
 
 - `aghast scan <repo-path> --config-dir <path> [options]` — Run security checks against a repository
 - `aghast new-check --config-dir <path> [options]` — Scaffold a new security check (bootstraps config dir if needed)
+- `aghast build-config --config-dir <path> [options]` — Build or edit `runtime-config.json` (interactive by default; `--non-interactive` plus field flags for scripted use; `--clear <field>` removes a field). Loads existing values if present so unspecified fields are preserved
 - `aghast --help` — Show usage
 - `aghast --version` — Print version from package.json
 
-The unified entry point is `src/cli.ts` which routes to `runScan()` (from `src/index.ts`) or `runNewCheck()` (from `src/new-check.ts`). Both functions accept `args: string[]` and are exported for programmatic use.
+The unified entry point is `src/cli.ts` which routes to `runScan()` (from `src/index.ts`), `runNewCheck()` (from `src/new-check.ts`), or `runBuildConfig()` (from `src/build-config.ts`). All three accept `args: string[]` and are exported for programmatic use.
 
 ## Commands
 
@@ -75,6 +76,7 @@ The unified entry point is `src/cli.ts` which routes to `runScan()` (from `src/i
 - `npm run lint:fix` — Run ESLint with auto-fix on src/ and tests/
 - `npm run scan -- <repo-path> --config-dir <path> [--output <path>] [--output-format json|sarif] [--fail-on-check-failure] [--debug] [--log-level <level>] [--log-file <path>] [--log-type <type>] [--model <model>] [--ai-provider <name>] [--generic-prompt <file>] [--runtime-config <path>]` — Run checks (`--config-dir` required, default format: `json`, default output: `<repo-path>/security_checks_results.<ext>`, exit 1 on FAIL/ERROR with `--fail-on-check-failure`, `--debug` is shorthand for `--log-level debug`, `--log-file` writes all logs to a file at trace level). Discovery methods (Semgrep, OpenAnt, SARIF) are configured per-check via `checkTarget.discovery` in check definitions. Precedence: CLI flags > env vars > runtime config > defaults.
 - `npm run new-check -- --config-dir <path> [--id <id> --name <name> ...]` — Interactive CLI to scaffold a new check (creates check folder with `<id>.json`, `<id>.md`, optional `<id>.yaml` Semgrep rule + tests; appends to `checks-config.json`). Bootstraps config directory if it doesn't exist.
+- `npm run build-config -- --config-dir <path> [--non-interactive] [--provider <name>] [--model <id>] [--output-format json|sarif] [--log-level <level>] [--clear <field>] ...` — Build or edit `runtime-config.json`. Interactive when no value flags are given; non-interactive when `--non-interactive` is passed (or when all needed values come from flags). Loads existing config so omitted fields stay untouched. Models come from `provider.listModels()`: the Claude Code provider tries `@anthropic-ai/sdk` `models.list()` first when `ANTHROPIC_API_KEY` is set (full canonical list with display names), then falls back to `claude-agent-sdk` `supportedModels()` (curated 3 aliases — works with `AGHAST_LOCAL_CLAUDE=true`).
 
 ## Check Definitions (External)
 
@@ -140,6 +142,7 @@ Precedence: CLI flags > environment variables > runtime config > built-in defaul
 - `src/logging.ts` — Pluggable logging system with standard levels (`error`, `warn`, `info`, `debug`, `trace`), `LogHandler` interface, `ConsoleHandler`, `FileHandler`, handler registry
 - `src/runtime-config.ts` — Runtime configuration loader (`loadRuntimeConfig`); supports `--runtime-config` CLI flag
 - `src/new-check.ts` — Check scaffolding CLI utility (exports `runNewCheck(args)`); bootstraps config directory
+- `src/build-config.ts` — Runtime-config builder CLI utility (exports `runBuildConfig(args)`); supports interactive + flag-driven modes, loads + edits existing files, validates against closed lists from provider/formatter/logging registries
 - `src/formatters/index.ts` — Formatter registry
 - `src/formatters/json-formatter.ts` — JSON output formatter
 - `src/formatters/sarif-formatter.ts` — SARIF output formatter

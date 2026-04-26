@@ -26,6 +26,7 @@ import { verifySemgrepInstalled } from './semgrep-runner.js';
 import { verifyOpenAntInstalled } from './openant-runner.js';
 import { MockAIProvider } from './mock-ai-provider.js';
 import { ERROR_CODES, formatError, formatFatalError } from './error-codes.js';
+import { DEFAULT_OUTPUT_FORMAT, DEFAULT_LOG_LEVEL, DEFAULT_LOG_TYPE } from './defaults.js';
 import { colorStatus } from './colors.js';
 import { getCheckType } from './check-types.js';
 import { createRequire } from 'node:module';
@@ -320,7 +321,7 @@ export async function runScan(args: string[]): Promise<void> {
 
   // Resolve log level: --log-level > AGHAST_LOG_LEVEL > runtime config > --debug/AGHAST_DEBUG > default
   const debug = parsed.debug || process.env.AGHAST_DEBUG === 'true';
-  const resolvedLogLevel = parsed.logLevel ?? (process.env.AGHAST_LOG_LEVEL || undefined) ?? runtimeConfig.logging?.level ?? (debug ? 'debug' : 'info');
+  const resolvedLogLevel = parsed.logLevel ?? (process.env.AGHAST_LOG_LEVEL || undefined) ?? runtimeConfig.logging?.level ?? (debug ? 'debug' : DEFAULT_LOG_LEVEL);
   if (resolvedLogLevel !== 'silent' && !isValidLogLevel(resolvedLogLevel)) {
     console.error(formatError(ERROR_CODES.E1001, `Invalid log level "${resolvedLogLevel}". Valid levels: error, warn, info, debug, trace`));
     process.exit(1);
@@ -330,7 +331,7 @@ export async function runScan(args: string[]): Promise<void> {
   // Resolve log file: --log-file > AGHAST_LOG_FILE > runtime config
   const resolvedLogFile = parsed.logFile ?? (process.env.AGHAST_LOG_FILE || undefined) ?? (runtimeConfig.logging?.logFile ? resolve(runtimeConfig.logging.logFile) : undefined);
   if (resolvedLogFile) {
-    const resolvedLogType = parsed.logType ?? (process.env.AGHAST_LOG_TYPE || undefined) ?? runtimeConfig.logging?.logType ?? 'file';
+    const resolvedLogType = parsed.logType ?? (process.env.AGHAST_LOG_TYPE || undefined) ?? runtimeConfig.logging?.logType ?? DEFAULT_LOG_TYPE;
     const availableTypes = getAvailableLogTypes();
     if (!availableTypes.includes(resolvedLogType)) {
       console.error(formatError(ERROR_CODES.E1001, `Unknown log type "${resolvedLogType}". Available types: ${availableTypes.join(', ')}`));
@@ -361,7 +362,7 @@ export async function runScan(args: string[]): Promise<void> {
   }
 
   // Resolve output format: CLI > runtime config > default
-  const resolvedOutputFormat = parsed.outputFormat ?? runtimeConfig.reporting?.outputFormat ?? 'json';
+  const resolvedOutputFormat = parsed.outputFormat ?? runtimeConfig.reporting?.outputFormat ?? DEFAULT_OUTPUT_FORMAT;
 
   // Resolve formatter early — fail fast on unknown format
   const formatter = getFormatter(resolvedOutputFormat);
@@ -535,12 +536,12 @@ export async function runScan(args: string[]): Promise<void> {
   // Summary output
   const statusIcon =
     results.summary.failedChecks > 0
-      ? 'FAIL'
+      ? 'ISSUES DETECTED'
       : results.summary.flaggedChecks > 0
-        ? 'FLAG'
+        ? 'REVIEW REQUIRED'
         : results.summary.errorChecks > 0
-          ? 'ERROR'
-          : 'PASS';
+          ? 'SCAN ERROR'
+          : 'NO ISSUES DETECTED';
 
   console.log('');
   console.log('='.repeat(60));

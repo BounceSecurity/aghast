@@ -7,10 +7,10 @@ import pc from 'picocolors';
 
 export function colorStatus(status: string): string {
   switch (status) {
-    case 'PASS': return pc.green(status);
-    case 'FAIL': return pc.red(status);
-    case 'FLAG': return pc.yellow(status);
-    case 'ERROR': return pc.red(status);
+    case 'NO ISSUES DETECTED': return pc.green(status);
+    case 'ISSUES DETECTED': return pc.red(status);
+    case 'REVIEW REQUIRED': return pc.yellow(status);
+    case 'SCAN ERROR': return pc.red(status);
     default: return status;
   }
 }

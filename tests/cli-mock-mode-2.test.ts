@@ -200,7 +200,7 @@ describe('CLI mock mode: ERROR and FLAG scenarios', () => {
       [fixtureRepo, '--config-dir', flagCheckConfigDir],
     );
     const combined = stdout + stderr;
-    assert.ok(combined.includes('AGHAST Scan Complete: FLAG'), 'Summary banner should show FLAG');
+    assert.ok(combined.includes('AGHAST Scan Complete: REVIEW REQUIRED'), 'Summary banner should show REVIEW REQUIRED');
   });
 
   it('FLAG multi-target: all targets flag → check status FLAG, flaggedChecks=1', async () => {
@@ -417,22 +417,22 @@ describe('CLI mock mode: semgrep-only checks', () => {
     assert.equal(summary.errorChecks, 1);
   });
 
-  it('summary banner shows correct status for FAIL', async () => {
+  it('summary banner shows ISSUES DETECTED when a check fails', async () => {
     const { stdout, stderr } = await runCLI(
       { AGHAST_MOCK_AI: 'true', AGHAST_MOCK_SEMGREP: cli3TargetsSarif },
       [fixtureRepo, '--config-dir', semgrepOnlyConfigDir],
     );
     const combined = stdout + stderr;
-    assert.ok(combined.includes('AGHAST Scan Complete: FAIL'), 'Summary banner should show FAIL');
+    assert.ok(combined.includes('AGHAST Scan Complete: ISSUES DETECTED'), 'Summary banner should show ISSUES DETECTED');
   });
 
-  it('summary banner shows PASS for empty SARIF', async () => {
+  it('summary banner shows NO ISSUES DETECTED for empty SARIF', async () => {
     const { stdout, stderr } = await runCLI(
       { AGHAST_MOCK_AI: 'true', AGHAST_MOCK_SEMGREP: emptyResultsSarif },
       [fixtureRepo, '--config-dir', semgrepOnlyConfigDir],
     );
     const combined = stdout + stderr;
-    assert.ok(combined.includes('AGHAST Scan Complete: PASS'), 'Summary banner should show PASS');
+    assert.ok(combined.includes('AGHAST Scan Complete: NO ISSUES DETECTED'), 'Summary banner should show NO ISSUES DETECTED');
   });
 
   it('mixed config: semgrep-only + AI check both processed', async () => {

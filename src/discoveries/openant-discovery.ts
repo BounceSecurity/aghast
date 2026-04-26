@@ -9,6 +9,7 @@
 import { runOpenAnt } from '../openant-runner.js';
 import { loadDatasetFromFile, filterUnits, formatUnitPromptSection } from '../openant-loader.js';
 import { logProgress, logDebug } from '../logging.js';
+import { DEFAULT_GENERIC_PROMPT } from '../defaults.js';
 import type { TargetDiscovery, DiscoveredTarget, DiscoveryOptions } from '../discovery.js';
 import type { SecurityCheck } from '../types.js';
 
@@ -16,7 +17,7 @@ const TAG = 'openant-discovery';
 
 export const openantDiscovery: TargetDiscovery = {
   name: 'openant',
-  defaultGenericPrompt: 'generic-instructions.md',
+  defaultGenericPrompt: DEFAULT_GENERIC_PROMPT,
   needsInstructions: true,
 
   async discover(

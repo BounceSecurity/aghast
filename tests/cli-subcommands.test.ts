@@ -157,7 +157,7 @@ describe('CLI subcommands: scan delegation', () => {
     );
     assert.equal(exitCode, 0);
     const combined = stdout + stderr;
-    assert.ok(combined.includes('AGHAST Scan Complete: PASS'), 'Should complete scan with PASS');
+    assert.ok(combined.includes('AGHAST Scan Complete: NO ISSUES DETECTED'), 'Should complete scan with NO ISSUES DETECTED');
     await access(outputFile);
   });
 
@@ -248,7 +248,7 @@ describe('CLI color output', () => {
     );
     const combined = stdout + stderr;
     assert.ok(!combined.includes('\x1b['), 'Should not contain ANSI escape codes with NO_COLOR=1');
-    assert.ok(combined.includes('AGHAST Scan Complete: PASS'), 'Should still contain status text');
+    assert.ok(combined.includes('AGHAST Scan Complete: NO ISSUES DETECTED'), 'Should still contain status text');
   });
 
   it('FORCE_COLOR=1 enables ANSI escape sequences', async () => {
