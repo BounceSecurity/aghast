@@ -261,7 +261,7 @@ An optional `runtime-config.json` file in the config directory (or specified via
 | Field                           | Type       | Default | Description |
 |---------------------------------|------------|---------|-------------|
 | `agentProvider.name`            | `string`   | `claude-code` | Agent provider name (`claude-code` or `opencode`) |
-| `agentProvider.model`           | `string`   | (provider default) | Model ID override. For `opencode`, use `providerID/modelID` format (e.g. `opencode/big-pickle`) |
+| `agentProvider.model`           | `string`   | (provider default) | Model ID override. For `opencode`, use `providerID/modelID` format (e.g. `opencode/minimax-m2.5-free`) |
 | `reporting.outputDirectory`     | `string`   | (target repo) | Directory for result files |
 | `reporting.outputFormat`        | `string`   | `json` | Output format: `json` or `sarif` |
 | `logging.logFile`               | `string`   | (none) | Path to log file. When set, all log output is written to this file |

@@ -43,6 +43,8 @@ Then run your check:
 aghast scan /path/to/target-repo --config-dir ./my-checks --output-format sarif
 ```
 
+> **Using OpenCode?** Add `--agent-provider opencode --model opencode/minimax-m2.5-free` to the command above, or choose another model that you want to use.
+
 Results are written to `security_checks_results.sarif` in the target repo, a SARIF 2.1.0 file compatible with GitHub Code Scanning and other SARIF viewers.
 
 ## Option B: Use the example checks
@@ -62,6 +64,8 @@ The repo includes five example checks demonstrating the three check types (`repo
 | 3 | [Missing API Token Decorator](#example-3-missing-api-token-decorator-static-check-semgrep-discovery) | static | Semgrep | — | Semgrep |
 | 4 | [SAST Finding Verification](#example-4-sast-finding-verification-targeted-check-sarif-input-false-positive-validation) | targeted | SARIF input | false-positive validation | API key |
 | 5 | [Various Security Vulnerabilities](#example-5-various-security-vulnerabilities-targeted-check-openant-discovery-general-vulnerability-analysis) | targeted | OpenAnt | general vulnerability discovery | API key, OpenAnt |
+
+> **Using OpenCode?** All examples that require an API key also work with the OpenCode provider. Add `--agent-provider opencode --model opencode/minimax-m2.5-free` to any `aghast scan` command below, or choose the model you want. See [Scanning → Using OpenCode](scanning.md#using-opencode) for setup.
 
 ### Example 1: Business Logic Bypass (repository check)
 
@@ -357,7 +361,7 @@ FAIL with ~8 issues: race condition in order creation, mass assignment allowing 
 
 ### Running example checks against your own code
 
-The checks in `checks-config.json` include a `repositories` field that limits which repos each check runs against. To run the example checks against your own repository, add your repo's path or remote URL to the `repositories` array for the relevant check, or use `"*"` to match all repositories. See the [Configuration Reference](configuration.md) for details.
+The checks in `checks-config.json` include a `repositories` field that limits which repos each check runs against. To run the example checks against your own repository, add your repo's path or remote URL to the `repositories` array for the relevant check, or set it to an empty array `[]` to match all repositories. See the [Configuration Reference](configuration.md) for details.
 
 ## What's next
 

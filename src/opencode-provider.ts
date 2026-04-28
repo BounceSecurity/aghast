@@ -20,7 +20,7 @@ import { logProgress, logDebug, logDebugFull, createTimer, getLogLevel } from '.
 const execAsync = promisify(exec);
 
 const TAG = 'opencode-provider';
-const DEFAULT_OPENCODE_MODEL = 'opencode/big-pickle';
+const DEFAULT_OPENCODE_MODEL = 'opencode/minimax-m2.5-free';
 const HEARTBEAT_INTERVAL_MS = 15000;
 const TRACE_POLL_MS = 1000;
 const CLOSE_TIMEOUT_MS = 5000;

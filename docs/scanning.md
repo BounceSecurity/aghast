@@ -36,7 +36,7 @@ Run `aghast scan --help` for the full list of options.
 
 | Variable | Description |
 |----------|-------------|
-| `ANTHROPIC_API_KEY` | API key for Claude (required for AI-based checks) |
+| `ANTHROPIC_API_KEY` | API key for Claude (required for AI-based checks with the `claude-code` provider) |
 | `AGHAST_CONFIG_DIR` | Default config directory (CLI `--config-dir` takes precedence) |
 | `AGHAST_AI_MODEL` | AI model override (CLI `--model` takes precedence) |
 | `AGHAST_GENERIC_PROMPT` | Generic prompt template filename (CLI `--generic-prompt` takes precedence) |
@@ -55,7 +55,7 @@ aghast supports multiple agent providers via the `--agent-provider` flag or `age
 | Provider | `--agent-provider` | `--model` format | Prerequisites |
 |----------|--------------------|------------------|---------------|
 | Claude Code (default) | `claude-code` | Model name (e.g. `haiku`, `sonnet`) | `ANTHROPIC_API_KEY` env var |
-| OpenCode | `opencode` | `providerID/modelID` (e.g. `opencode/big-pickle`, `cursor-acp/composer-2-fast`) | [OpenCode CLI](https://opencode.ai) installed and configured |
+| OpenCode | `opencode` | `providerID/modelID` (e.g. `opencode/minimax-m2.5-free`, `cursor-acp/composer-2-fast`) | [OpenCode CLI](https://opencode.ai) installed and configured |
 
 ### Using OpenCode
 
@@ -65,10 +65,10 @@ The OpenCode provider delegates to any of the 75+ LLM providers supported by [Op
 2. Configure a provider: run `opencode` and use `/connect` to set up credentials
 3. Run a scan:
    ```bash
-   aghast scan ./my-repo --config-dir ./checks --agent-provider opencode --model opencode/big-pickle
+   aghast scan ./my-repo --config-dir ./checks --agent-provider opencode --model opencode/minimax-m2.5-free
    ```
 
-The default model is `opencode/big-pickle`. Use the `providerID/modelID` format to select any configured provider and model.
+The default model is `opencode/minimax-m2.5-free`. Use the `providerID/modelID` format to select any configured provider and model.
 
 ## Runtime Configuration
 

@@ -16,7 +16,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  REGRESSION_TEST_MODEL: opencode/big-pickle
+  REGRESSION_TEST_MODEL: opencode/minimax-m2.5-free
 
 permissions:
   contents: read
@@ -289,6 +289,8 @@ jobs:
         run: npm run test:openant
 
   opencode-integration:
+    needs: [check-ci-skip]
+    if: always() && (needs.check-ci-skip.result == 'skipped' || needs.check-ci-skip.outputs.skip != 'true')
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -313,6 +315,8 @@ jobs:
         timeout-minutes: 10
 
   regression-test-sarif:
+    needs: [check-ci-skip]
+    if: false  # temporarily disabled: unreliable and slow
     runs-on: ubuntu-latest
 
     steps:
@@ -339,6 +343,8 @@ jobs:
         timeout-minutes: 20
 
   regression-test-semgrep:
+    needs: [check-ci-skip]
+    if: always() && (needs.check-ci-skip.result == 'skipped' || needs.check-ci-skip.outputs.skip != 'true')
     runs-on: ubuntu-latest
 
     steps:

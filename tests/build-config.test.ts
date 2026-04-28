@@ -32,7 +32,17 @@ interface CLIResult {
 
 function runCLI(args: string[], extraEnv: Record<string, string | undefined> = {}): Promise<CLIResult> {
   return new Promise((resolvePromise) => {
-    const baseEnv = { ...process.env, NO_COLOR: '1', AGHAST_CONFIG_DIR: '' };
+    // Empty strings (rather than `delete`) so dotenv in the child won't refill from .env.
+    // ANTHROPIC_API_KEY/AGHAST_LOCAL_CLAUDE are blanked so listModels() rejects fast on the
+    // claude-code provider's "API key required" check, instead of falling through to the
+    // agent SDK path which spawns a Claude CLI subprocess (slow on Windows/WSL).
+    const baseEnv = {
+      ...process.env,
+      NO_COLOR: '1',
+      AGHAST_CONFIG_DIR: '',
+      ANTHROPIC_API_KEY: '',
+      AGHAST_LOCAL_CLAUDE: '',
+    };
     for (const [k, v] of Object.entries(extraEnv)) {
       if (v === undefined) {
         delete baseEnv[k];
