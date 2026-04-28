@@ -12,13 +12,13 @@ This guide walks you through installing aghast and setting up your environment.
 ## Prerequisites
 
 - **Node.js 20+**
-- **[Semgrep Community Edition](https://semgrep.dev/docs/getting-started/)** (LGPL-2.1) - only required if your checks use `semgrep` discovery
-- **[OpenAnt](https://github.com/knostic/OpenAnt)** + **Python 3.11+** + **Go** (for building) - only required if your checks use `openant` discovery
-- **An agent provider** - required for AI-based checks (`repository` and `targeted` types; not needed for `static` checks). Pick one:
+- **An agent provider**, required for AI-based checks (`repository` and `targeted` types; not needed for `static` checks). Either:
   - An **Anthropic API key** for the default `claude-code` provider, or
-  - **[OpenCode](https://opencode.ai)** installed and authenticated for the `opencode` provider, which delegates to any of the 75+ LLM providers OpenCode supports.
+  - **[OpenCode](https://opencode.ai)** installed and authenticated for the `opencode` provider, which delegates to any of the 75+ LLM providers OpenCode supports, including some **free options**.
 
   See [Scanning → Agent Providers](scanning.md#agent-providers) for the full comparison.
+- For checks that use `semgrep` discovery: **[Semgrep Community Edition](https://semgrep.dev/docs/getting-started/)** (LGPL-2.1)
+- For checks that use `openant` discovery: **[OpenAnt](https://github.com/knostic/OpenAnt)** (Apache-2.0) + **Python 3.11+** + **Go** (for building CLI)
 
 ## 1. Install aghast
 
@@ -50,7 +50,7 @@ Install OpenCode from [https://opencode.ai](https://opencode.ai), then run `open
 
 ```bash
 # Per-scan:
-aghast scan <repo-path> --config-dir <path> --agent-provider opencode --model opencode/big-pickle
+aghast scan <repo-path> --config-dir <path> --agent-provider opencode --model opencode/minimax-m2.5-free
 ```
 
 **Pin defaults (applies to both options).** Use `aghast build-config` to write a `runtime-config.json` in your config directory so future scans use your chosen provider and model without any flags:
@@ -62,7 +62,7 @@ aghast build-config --config-dir <path>            # interactive (covers both op
 aghast build-config --config-dir <path> --provider claude-code --model sonnet --non-interactive
 
 # Option B — pin opencode with a specific model:
-aghast build-config --config-dir <path> --provider opencode --model opencode/big-pickle --non-interactive
+aghast build-config --config-dir <path> --provider opencode --model opencode/minimax-m2.5-free --non-interactive
 ```
 
 See [Configuration Reference → Runtime Configuration](configuration.md#runtime-configuration) for the full schema.

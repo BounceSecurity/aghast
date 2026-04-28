@@ -5,14 +5,38 @@
  * across multiple files for parallel CI execution.
  */
 
-import { execFile, spawnSync } from 'node:child_process';
-import { resolve, dirname } from 'node:path';
+import { execFile } from 'node:child_process';
+import { statSync } from 'node:fs';
+import { resolve, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readFile, unlink } from 'node:fs/promises';
 
 export const testDir = dirname(fileURLToPath(import.meta.url));
 
-export const semgrepInstalled = spawnSync('semgrep', ['--version'], { timeout: 5000 }).status === 0;
+// PATH-based existence check rather than spawning `semgrep --version`. Semgrep's
+// version command does a network update check (~1.7s) and 5 test files import
+// this helper in parallel processes — `spawnSync` with a 5s timeout can fall
+// over under that load, falsely marking semgrep as missing.
+function isOnPath(name: string): boolean {
+  const isWin = process.platform === 'win32';
+  const sep = isWin ? ';' : ':';
+  const exts = isWin
+    ? (process.env.PATHEXT ?? '.EXE;.CMD;.BAT').split(';').filter(Boolean)
+    : [''];
+  const dirs = (process.env.PATH ?? '').split(sep).filter(Boolean);
+  for (const dir of dirs) {
+    for (const ext of exts) {
+      try {
+        if (statSync(join(dir, `${name}${ext}`)).isFile()) return true;
+      } catch {
+        // not found in this dir, keep looking
+      }
+    }
+  }
+  return false;
+}
+
+export const semgrepInstalled = isOnPath('semgrep');
 
 export const fixtureRepo = resolve(testDir, 'fixtures', 'git-repo');
 export const entryPoint = resolve(testDir, '..', 'src', 'index.ts');
