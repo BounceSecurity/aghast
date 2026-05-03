@@ -22,12 +22,14 @@ permissions:
   contents: read
 
 jobs:
-  # On push-to-main after a merged PR, skip CI if the PR's checks already passed.
-  # This is safe because branch protection requires PRs to be up-to-date with main
-  # before merging, so the tested code is identical to what lands on main.
+  # Skip CI when it would be redundant:
+  #   Push:  merged PR whose checks already passed (safe because branch protection
+  #          requires PRs to be up-to-date with main before merging).
+  #          Direct pushes that only touch .md files also skip when the last CI
+  #          run on the branch passed.
+  #   PR:    only .md files changed AND the last CI run on the base branch passed.
   check-ci-skip:
     runs-on: ubuntu-latest
-    if: github.event_name == 'push'
     continue-on-error: true
     outputs:
       skip: ${{ steps.check.outputs.skip }}
@@ -37,18 +39,64 @@ jobs:
       pull-requests: read
       actions: read
     steps:
-      - name: Check if merged PR already passed CI
+      - name: Check if CI should be skipped
         id: check
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           COMMIT_SHA: ${{ github.sha }}
         run: |
+          # ── Pull-request path ────────────────────────────────────────────
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            PR_NUM="${{ github.event.pull_request.number }}"
+
+            NON_MD=$(gh pr view "$PR_NUM" --repo "$GH_REPO" --json files \
+              --jq '[.files[].path | select(test("\\.md$") | not)] | length')
+            TOTAL=$(gh pr view "$PR_NUM" --repo "$GH_REPO" --json files \
+              --jq '.files | length')
+
+            if [ "$NON_MD" -eq 0 ] && [ "$TOTAL" -gt 0 ]; then
+              echo "PR #$PR_NUM only changes markdown files ($TOTAL file(s)) — checking base branch CI"
+              BASE_REF="${{ github.base_ref }}"
+              LAST=$(gh run list --repo "$GH_REPO" --workflow=ci.yml \
+                --branch="$BASE_REF" --limit=1 \
+                --json conclusion --jq '.[0].conclusion // "none"')
+              if [ "$LAST" = "success" ]; then
+                echo "Last CI run on $BASE_REF passed — skipping CI"
+                echo "skip=true" >> "$GITHUB_OUTPUT"
+              else
+                echo "Last CI run on $BASE_REF: $LAST — running CI"
+                echo "skip=false" >> "$GITHUB_OUTPUT"
+              fi
+            else
+              echo "PR #$PR_NUM has $NON_MD non-markdown change(s) — running CI"
+              echo "skip=false" >> "$GITHUB_OUTPUT"
+            fi
+            exit 0
+          fi
+
+          # ── Push path ────────────────────────────────────────────────────
           # Find the merged PR that produced this commit
           PR_NUM=$(gh pr list --state merged --json number,mergeCommit \
             --jq ".[] | select(.mergeCommit.oid == \"$COMMIT_SHA\") | .number")
 
           if [ -z "$PR_NUM" ]; then
+            # Direct push: skip if only markdown files changed and last CI run passed
+            NON_MD=$(gh api "repos/$GH_REPO/commits/$COMMIT_SHA" \
+              --jq '[.files[].filename | select(test("\\.md$") | not)] | length' \
+              2>/dev/null || echo "1")
+            if [ "$NON_MD" = "0" ]; then
+              BRANCH="${{ github.ref_name }}"
+              LAST=$(gh run list --repo "$GH_REPO" --workflow=ci.yml \
+                --branch="$BRANCH" --limit=5 \
+                --json conclusion,headSha \
+                --jq "[.[] | select(.headSha != \"$COMMIT_SHA\")] | .[0].conclusion // \"none\"")
+              if [ "$LAST" = "success" ]; then
+                echo "Direct push with only markdown changes, last CI passed — skipping"
+                echo "skip=true" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+            fi
             echo "No merged PR found for $COMMIT_SHA (direct push?) — running CI"
             echo "skip=false" >> "$GITHUB_OUTPUT"
             exit 0
@@ -228,7 +276,7 @@ jobs:
 
       - run: npm ci
 
-      - run: echo semgrep > requirements.txt
+      - run: echo "semgrep==1.161.0" > requirements.txt
 
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
         with:
@@ -298,9 +346,9 @@ jobs:
         os: ${{ github.event.repository.name == 'aghast' && fromJSON('["windows-latest","ubuntu-latest","macos-latest"]') || fromJSON('["ubuntu-latest"]') }}
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
           node-version: '22'
           cache: 'npm'
@@ -308,7 +356,7 @@ jobs:
       - run: npm ci
 
       - name: Install OpenCode CLI
-        run: npm install -g opencode-ai
+        run: npm install -g opencode-ai@1.14.33
 
       - name: Run OpenCode integration tests (with retry)
         run: npm run test:opencode || npm run test:opencode || npm run test:opencode
@@ -320,9 +368,9 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
           node-version: '22'
           cache: 'npm'
@@ -330,7 +378,7 @@ jobs:
       - run: npm ci
 
       - name: Install OpenCode CLI
-        run: npm install -g opencode-ai
+        run: npm install -g opencode-ai@1.14.33
 
       - name: Clone public checks repo
         run: git clone --depth=1 https://github.com/BounceSecurity/aghast-bounce-checks-public.git checks-config-public
@@ -348,9 +396,9 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
           node-version: '22'
           cache: 'npm'
@@ -358,11 +406,11 @@ jobs:
       - run: npm ci
 
       - name: Install OpenCode CLI
-        run: npm install -g opencode-ai
+        run: npm install -g opencode-ai@1.14.33
 
-      - run: echo semgrep > requirements.txt
+      - run: echo "semgrep==1.161.0" > requirements.txt
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
         with:
           python-version: '3.x'
           cache: 'pip'

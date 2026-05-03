@@ -59,7 +59,7 @@ aghast supports multiple agent providers via the `--agent-provider` flag or `age
 
 ### Using OpenCode
 
-[Click for a video introduction to OpenCode support.](https://youtu.be/NkOc6pLanmQ)  
+[Click for a video introduction to OpenCode support.](https://youtu.be/NkOc6pLanmQ)
 
 The OpenCode provider delegates to any of the 75+ LLM providers supported by [OpenCode](https://opencode.ai). To use it:
 
