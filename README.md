@@ -101,6 +101,7 @@ Results are structured JSON (or SARIF) with per-check status and detailed issues
 - [Getting Started](docs/getting-started.md) — installation, setup, and first scan
 - [Trying It Out](docs/trying-it-out.md) — example checks walkthrough and first scan guide
 - [Scanning](docs/scanning.md) — scan command options, environment variables, output formats
+- [Cost Tracking](docs/cost-tracking.md) — how scan cost is measured, sources, and labels
 - [Creating Checks](docs/creating-checks.md) — scaffolding new security checks
 - [Configuration Reference](docs/configuration.md) — check schemas, check types, runtime config
 - [Development](docs/development.md) — setup, building, testing, releasing
