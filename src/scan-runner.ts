@@ -485,8 +485,10 @@ async function executeSingleCheck(
   try {
     if (costTracker) preflightBudget(costTracker);
     const agentResponse = await agentProvider.executeCheck(prompt, repositoryPath);
-    const model = agentProvider.getModelName?.() ?? DEFAULT_MODEL;
-    recordUsage(costTracker, agentResponse.tokenUsage, model);
+    if (costTracker) {
+      const model = agentProvider.getModelName?.() ?? DEFAULT_MODEL;
+      recordUsage(costTracker, agentResponse.tokenUsage, model);
+    }
     const executionTime = checkTimer.elapsed();
 
     logDebug(TAG, `Agent response: ${agentResponse.raw.length} chars`);
