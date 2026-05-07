@@ -435,11 +435,11 @@ async function executeSingleCheck(
   checkInstructions: string,
   repositoryPath: string,
   agentProvider: AgentProvider | undefined,
+  costTracker: ScanCostTracker,
   checkMetadata?: { severity?: string; confidence?: string },
   concurrency?: number,
   configDir?: string,
   genericPrompt?: string,
-  costTracker?: ScanCostTracker,
 ): Promise<CheckExecutionResult> {
   const checkId = check.id;
 
@@ -454,11 +454,11 @@ async function executeSingleCheck(
       checkInstructions,
       repositoryPath,
       agentProvider,
+      costTracker,
       checkMetadata,
       concurrency,
       configDir,
       genericPrompt,
-      costTracker,
     );
   }
 
@@ -483,12 +483,10 @@ async function executeSingleCheck(
   const checkTimer = createTimer();
 
   try {
-    if (costTracker) preflightBudget(costTracker);
+    preflightBudget(costTracker);
     const agentResponse = await agentProvider.executeCheck(prompt, repositoryPath);
-    if (costTracker) {
-      const model = agentProvider.getModelName?.() ?? DEFAULT_MODEL;
-      recordUsage(costTracker, agentResponse.tokenUsage, model);
-    }
+    const model = agentProvider.getModelName?.() ?? DEFAULT_MODEL;
+    recordUsage(costTracker, agentResponse.tokenUsage, model);
     const executionTime = checkTimer.elapsed();
 
     logDebug(TAG, `Agent response: ${agentResponse.raw.length} chars`);
@@ -576,11 +574,11 @@ async function executeTargetedCheck(
   checkInstructions: string,
   repositoryPath: string,
   agentProvider: AgentProvider,
+  costTracker: ScanCostTracker,
   checkMetadata?: { severity?: string; confidence?: string },
   optionsConcurrency?: number,
   configDir?: string,
   genericPromptOverride?: string,
-  costTracker?: ScanCostTracker,
 ): Promise<CheckExecutionResult> {
   const checkId = check.id;
   const checkTarget = check.checkTarget!;
@@ -661,17 +659,15 @@ async function executeTargetedCheck(
       async (target, _idx) => {
         inProgressCount++;
         try {
-          if (costTracker) {
-            try {
-              preflightBudget(costTracker);
-            } catch (budgetErr) {
-              if (budgetErr instanceof BudgetExceededError) {
-                abortHandle.aborted = true;
-                abortHandle.reason = budgetErr;
-                throw budgetErr;
-              }
+          try {
+            preflightBudget(costTracker);
+          } catch (budgetErr) {
+            if (budgetErr instanceof BudgetExceededError) {
+              abortHandle.aborted = true;
+              abortHandle.reason = budgetErr;
               throw budgetErr;
             }
+            throw budgetErr;
           }
           const prompt = basePrompt + (target.promptEnrichment ?? '');
 
@@ -695,10 +691,8 @@ async function executeTargetedCheck(
           ]).finally(() => {
             if (timeoutHandle) clearTimeout(timeoutHandle);
           });
-          if (costTracker) {
-            const model = agentProvider.getModelName?.() ?? DEFAULT_MODEL;
-            recordUsage(costTracker, agentResponse.tokenUsage, model);
-          }
+          const model = agentProvider.getModelName?.() ?? DEFAULT_MODEL;
+          recordUsage(costTracker, agentResponse.tokenUsage, model);
 
           const parsed = agentResponse.parsed ?? parseAgentResponse(agentResponse.raw);
 
@@ -976,11 +970,11 @@ export async function runMultiScanWithCost(options: MultiScanOptions): Promise<M
         details.content,
         repositoryPath,
         agentProvider,
+        costTracker,
         checkMetadata,
         concurrency,
         configDir,
         genericPrompt,
-        costTracker,
       );
 
       allCheckSummaries.push(checkSummary);
