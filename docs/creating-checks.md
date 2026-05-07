@@ -1,6 +1,6 @@
 <p align="center">
   <strong>AGHAST Documentation</strong><br>
-  <a href="scanning.md">&larr; Scanning</a>&nbsp;&nbsp;&bull;&nbsp;&nbsp;<a href="README.md">&uarr; Documentation Index</a>&nbsp;&nbsp;&bull;&nbsp;&nbsp;<a href="configuration.md">Configuration Reference &rarr;</a>
+  <a href="cost-tracking.md">&larr; Cost Tracking</a>&nbsp;&nbsp;&bull;&nbsp;&nbsp;<a href="README.md">&uarr; Documentation Index</a>&nbsp;&nbsp;&bull;&nbsp;&nbsp;<a href="configuration.md">Configuration Reference &rarr;</a>
 </p>
 
 ---

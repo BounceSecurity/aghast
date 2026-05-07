@@ -188,6 +188,91 @@ test('loadRuntimeConfig: rejects logging.level as non-string', async () => {
   }
 });
 
+test('loadRuntimeConfig: rejects budget.perPeriod without window', async () => {
+  // F4: perPeriod with only maxCostUsd is silently ignored at runtime — reject.
+  const { writeFile, unlink } = await import('node:fs/promises');
+  const tmpPath = resolve(__dirname, 'fixtures', 'runtime-config', 'bad-period-no-window.json');
+  await writeFile(tmpPath, JSON.stringify({ budget: { perPeriod: { maxCostUsd: 5 } } }), 'utf-8');
+  try {
+    await assert.rejects(
+      async () => {
+        await loadRuntimeConfig('/unused', tmpPath);
+      },
+      (err: unknown) => {
+        const error = err as Error;
+        return error.message.includes('"budget.perPeriod.window" is required');
+      },
+    );
+  } finally {
+    await unlink(tmpPath);
+  }
+});
+
+test('loadRuntimeConfig: rejects budget.perPeriod without maxCostUsd', async () => {
+  // F4: perPeriod with only window is functionally inert — reject.
+  const { writeFile, unlink } = await import('node:fs/promises');
+  const tmpPath = resolve(__dirname, 'fixtures', 'runtime-config', 'bad-period-no-cost.json');
+  await writeFile(tmpPath, JSON.stringify({ budget: { perPeriod: { window: 'day' } } }), 'utf-8');
+  try {
+    await assert.rejects(
+      async () => {
+        await loadRuntimeConfig('/unused', tmpPath);
+      },
+      (err: unknown) => {
+        const error = err as Error;
+        return error.message.includes('"budget.perPeriod.maxCostUsd" is required');
+      },
+    );
+  } finally {
+    await unlink(tmpPath);
+  }
+});
+
+test('loadRuntimeConfig: rejects negative budget values', async () => {
+  // F5: negative numbers must be rejected, otherwise checkBudget treats them
+  // as "no limit" (silently) and a negative pricing rate yields negative costs.
+  const { writeFile, unlink } = await import('node:fs/promises');
+  const tmpPath = resolve(__dirname, 'fixtures', 'runtime-config', 'bad-negative-budget.json');
+  await writeFile(tmpPath, JSON.stringify({ budget: { perScan: { maxCostUsd: -5 } } }), 'utf-8');
+  try {
+    await assert.rejects(
+      async () => {
+        await loadRuntimeConfig('/unused', tmpPath);
+      },
+      (err: unknown) => {
+        const error = err as Error;
+        return error.message.includes('"budget.perScan.maxCostUsd" must be a non-negative number');
+      },
+    );
+  } finally {
+    await unlink(tmpPath);
+  }
+});
+
+test('loadRuntimeConfig: rejects negative pricing rates', async () => {
+  // F5: negative pricing.models.<name>.inputPerMillion produces negative costs.
+  const { writeFile, unlink } = await import('node:fs/promises');
+  const tmpPath = resolve(__dirname, 'fixtures', 'runtime-config', 'bad-negative-pricing.json');
+  await writeFile(
+    tmpPath,
+    JSON.stringify({ pricing: { models: { foo: { inputPerMillion: -1, outputPerMillion: 1 } } } }),
+    'utf-8',
+  );
+  try {
+    await assert.rejects(
+      async () => {
+        await loadRuntimeConfig('/unused', tmpPath);
+      },
+      (err: unknown) => {
+        const error = err as Error;
+        return error.message.includes('"pricing.models.foo.inputPerMillion" must be a non-negative number');
+      },
+    );
+  } finally {
+    await unlink(tmpPath);
+  }
+});
+
 test('loadRuntimeConfig: rejects non-object root (e.g., array)', async () => {
   // Create an inline test by passing explicit path to a temp file
   const { writeFile: writeFileSync, unlink: unlinkSync } = await import('node:fs/promises');

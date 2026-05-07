@@ -356,7 +356,10 @@ jobs:
       - run: npm ci
 
       - name: Install OpenCode CLI
-        run: npm install -g opencode-ai@1.14.33
+        shell: bash
+        run: |
+          npm ci --prefix .github/opencode-install
+          echo "$GITHUB_WORKSPACE/.github/opencode-install/node_modules/.bin" >> $GITHUB_PATH
 
       - name: Run OpenCode integration tests (with retry)
         run: npm run test:opencode || npm run test:opencode || npm run test:opencode
@@ -378,7 +381,10 @@ jobs:
       - run: npm ci
 
       - name: Install OpenCode CLI
-        run: npm install -g opencode-ai@1.14.33
+        shell: bash
+        run: |
+          npm ci --prefix .github/opencode-install
+          echo "$GITHUB_WORKSPACE/.github/opencode-install/node_modules/.bin" >> $GITHUB_PATH
 
       - name: Clone public checks repo
         run: git clone --depth=1 https://github.com/BounceSecurity/aghast-bounce-checks-public.git checks-config-public
@@ -406,7 +412,10 @@ jobs:
       - run: npm ci
 
       - name: Install OpenCode CLI
-        run: npm install -g opencode-ai@1.14.33
+        shell: bash
+        run: |
+          npm ci --prefix .github/opencode-install
+          echo "$GITHUB_WORKSPACE/.github/opencode-install/node_modules/.bin" >> $GITHUB_PATH
 
       - run: echo "semgrep==1.161.0" > requirements.txt
 

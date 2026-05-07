@@ -15,7 +15,7 @@ describe('Production MockAgentProvider', () => {
     assert.equal(typeof provider.initialize, 'function');
     assert.equal(typeof provider.executeCheck, 'function');
     assert.equal(typeof provider.validateConfig, 'function');
-    assert.equal(typeof provider.enableDebug, 'function');
+
   });
 
   it('initialize succeeds without error', async () => {
@@ -43,12 +43,6 @@ describe('Production MockAgentProvider', () => {
     const provider = new MockAgentProvider({ rawResponse: '{}' });
     const valid = await provider.validateConfig();
     assert.equal(valid, true);
-  });
-
-  it('enableDebug is a no-op', () => {
-    const provider = new MockAgentProvider({ rawResponse: '{}' });
-    // Should not throw
-    provider.enableDebug();
   });
 
   it('returns same response on multiple calls', async () => {

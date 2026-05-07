@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import {
   runMultiScan,
   generateScanId,
+  sumTokenUsage,
 } from '../src/scan-runner.js';
 import { getRegisteredDiscoveries, registerDiscovery, unregisterDiscovery } from '../src/discovery.js';
 import type { SecurityCheck, CheckDetails } from '../src/types.js';
@@ -1579,5 +1580,78 @@ describe('runMultiScan (fatal error abort)', () => {
     assert.ok(results.checks[0].error!.includes('authentication failed'), 'Should mention auth error');
     assert.equal(results.checks[1].status, 'ERROR', 'Check 2 should ERROR (aborted)');
     assert.ok(results.checks[1].error!.includes('Scan aborted'), 'Check 2 should say aborted');
+  });
+});
+
+describe('sumTokenUsage', () => {
+  it('returns undefined when all inputs are undefined', () => {
+    assert.equal(sumTokenUsage([undefined, undefined]), undefined);
+  });
+
+  it('returns undefined for empty array', () => {
+    assert.equal(sumTokenUsage([]), undefined);
+  });
+
+  it('sums basic fields across multiple entries', () => {
+    const result = sumTokenUsage([
+      { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
+      { inputTokens: 200, outputTokens: 75, totalTokens: 275 },
+    ]);
+    assert.ok(result);
+    assert.equal(result!.inputTokens, 300);
+    assert.equal(result!.outputTokens, 125);
+    assert.equal(result!.totalTokens, 425);
+  });
+
+  it('sums cache and reasoning tokens when present', () => {
+    const result = sumTokenUsage([
+      { inputTokens: 100, outputTokens: 50, totalTokens: 150, cacheReadInputTokens: 1000, cacheCreationInputTokens: 200, reasoningTokens: 10 },
+      { inputTokens: 100, outputTokens: 50, totalTokens: 150, cacheReadInputTokens: 500, cacheCreationInputTokens: 100, reasoningTokens: 5 },
+    ]);
+    assert.ok(result);
+    assert.equal(result!.cacheReadInputTokens, 1500);
+    assert.equal(result!.cacheCreationInputTokens, 300);
+    assert.equal(result!.reasoningTokens, 15);
+  });
+
+  it('preserves undefined for cache fields when all inputs omit them', () => {
+    const result = sumTokenUsage([
+      { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
+      { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
+    ]);
+    assert.ok(result);
+    assert.equal(result!.cacheReadInputTokens, undefined);
+    assert.equal(result!.cacheCreationInputTokens, undefined);
+    assert.equal(result!.reasoningTokens, undefined);
+  });
+
+  it('aggregates reportedCost when all inputs have it', () => {
+    const result = sumTokenUsage([
+      { inputTokens: 100, outputTokens: 50, totalTokens: 150, reportedCost: { amountUsd: 0.01, source: 'claude-agent-sdk' } },
+      { inputTokens: 200, outputTokens: 75, totalTokens: 275, reportedCost: { amountUsd: 0.02, source: 'claude-agent-sdk' } },
+    ]);
+    assert.ok(result);
+    assert.ok(result!.reportedCost);
+    assert.equal(result!.reportedCost!.amountUsd, 0.03);
+    assert.equal(result!.reportedCost!.source, 'claude-agent-sdk');
+  });
+
+  it('sets reportedCost to undefined when any input is missing it', () => {
+    const result = sumTokenUsage([
+      { inputTokens: 100, outputTokens: 50, totalTokens: 150, reportedCost: { amountUsd: 0.01, source: 'claude-agent-sdk' } },
+      { inputTokens: 200, outputTokens: 75, totalTokens: 275 },
+    ]);
+    assert.ok(result);
+    assert.equal(result!.reportedCost, undefined);
+  });
+
+  it('skips undefined entries in the array', () => {
+    const result = sumTokenUsage([
+      undefined,
+      { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
+      undefined,
+    ]);
+    assert.ok(result);
+    assert.equal(result!.inputTokens, 100);
   });
 });

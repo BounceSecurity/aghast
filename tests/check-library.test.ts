@@ -273,6 +273,37 @@ describe('checkMatchesRepository', () => {
     const check = makeCheck({ repositories: ['Org/Team/Service'] });
     assert.ok(checkMatchesRepository(check, 'org/team/service'));
   });
+
+  it('excludes repos in excludeRepositories when repositories is empty (match-all)', () => {
+    const check = makeCheck({
+      repositories: [],
+      excludeRepositories: ['legacy-monolith'],
+    });
+    assert.ok(!checkMatchesRepository(check, 'org/legacy-monolith'));
+    assert.ok(checkMatchesRepository(check, 'org/other-service'));
+  });
+
+  it('exclusion overrides inclusion when same repo appears in both', () => {
+    const check = makeCheck({
+      repositories: ['org/team/service'],
+      excludeRepositories: ['org/team/service'],
+    });
+    assert.ok(!checkMatchesRepository(check, 'org/team/service'));
+  });
+
+  it('excludeRepositories uses bidirectional substring match like repositories', () => {
+    const check = makeCheck({
+      repositories: [],
+      excludeRepositories: ['https://github.com/org/legacy'],
+    });
+    assert.ok(!checkMatchesRepository(check, 'org/legacy'));
+  });
+
+  it('absent excludeRepositories field behaves identically to today', () => {
+    const check = makeCheck({ repositories: ['org/repo'] });
+    assert.ok(checkMatchesRepository(check, 'org/repo'));
+    assert.ok(!checkMatchesRepository(check, 'other/repo'));
+  });
 });
 
 // --- filterChecksForRepository ---
@@ -638,6 +669,14 @@ describe('loadCheckRegistry (schema validation)', () => {
     await assert.rejects(
       loadCheckRegistry(badReposDir),
       /checks\[0\]\.repositories must be an array/,
+    );
+  });
+
+  it('throws when excludeRepositories is not an array', async () => {
+    const badDir = resolve(fixturesDir, 'cli-configs', 'bad-registry-exclude-repos');
+    await assert.rejects(
+      loadCheckRegistry(badDir),
+      /checks\[0\]\.excludeRepositories must be an array/,
     );
   });
 });

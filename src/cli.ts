@@ -26,6 +26,7 @@ Commands:
   scan           Run security checks against a repository
   new-check      Scaffold a new security check
   build-config   Build or edit a runtime-config.json (interactive or flag-driven)
+  stats          Print a cost summary from the scan history
 
 Options:
   --help      Show this help message
@@ -63,10 +64,14 @@ async function main(): Promise<void> {
     process.exit(143);
   });
 
-  printLogo();
-
   const args = process.argv.slice(2);
   const command = args[0];
+
+  // Skip the logo for `stats --json` so machine-readable output is parseable.
+  const isStatsJson = command === 'stats' && args.includes('--json');
+  if (!isStatsJson) {
+    printLogo();
+  }
 
   if (!command || command === '--help' || command === '-h') {
     console.log(USAGE);
@@ -94,6 +99,11 @@ async function main(): Promise<void> {
     case 'build-config': {
       const { runBuildConfig } = await import('./build-config.js');
       await runBuildConfig(subArgs);
+      break;
+    }
+    case 'stats': {
+      const { runStats } = await import('./stats.js');
+      await runStats(subArgs);
       break;
     }
     default:

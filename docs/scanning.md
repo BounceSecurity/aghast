@@ -1,6 +1,6 @@
 <p align="center">
   <strong>AGHAST Documentation</strong><br>
-  <a href="trying-it-out.md">&larr; Trying It Out</a>&nbsp;&nbsp;&bull;&nbsp;&nbsp;<a href="README.md">&uarr; Documentation Index</a>&nbsp;&nbsp;&bull;&nbsp;&nbsp;<a href="creating-checks.md">Creating Checks &rarr;</a>
+  <a href="trying-it-out.md">&larr; Trying It Out</a>&nbsp;&nbsp;&bull;&nbsp;&nbsp;<a href="README.md">&uarr; Documentation Index</a>&nbsp;&nbsp;&bull;&nbsp;&nbsp;<a href="cost-tracking.md">Cost Tracking &rarr;</a>
 </p>
 
 ---
@@ -29,6 +29,8 @@ aghast scan <repo-path> --config-dir <path> [options]
 | `--agent-provider <name>` | Agent provider name (default: `claude-code`) |
 | `--generic-prompt <file>` | Generic prompt template filename |
 | `--runtime-config <path>` | Path to runtime config file. Useful for setting persistent defaults instead of repeating CLI flags |
+| `--budget-limit-cost <usd>` | Abort the scan when accumulated cost exceeds this USD value (warns at 80%) |
+| `--budget-limit-tokens <n>` | Abort the scan when accumulated tokens exceed this count (warns at 80%) |
 
 Run `aghast scan --help` for the full list of options.
 
@@ -114,6 +116,26 @@ Analysis modes for `targeted` checks (`checkTarget.analysisMode`):
 Built-in modes (`false-positive-validation`, `general-vuln-discovery`) provide their own prompt template and don't require an instructions file. See [How It Works](how-it-works.md#three-check-types) for details.
 
 See the [Configuration Reference](configuration.md) for check definition schemas and result statuses.
+
+## Cost dashboards (`aghast stats`)
+
+Each successful scan appends a record to the local history file (`~/.aghast/history.json` by default) with token usage, estimated cost, models, duration, and per-repository metadata. The `aghast stats` subcommand summarises that history:
+
+```bash
+aghast stats                          # full summary
+aghast stats --repo my-org/repo       # filter by repository (substring)
+aghast stats --model claude-sonnet    # filter by model substring
+aghast stats --since 2026-01-01       # only include scans started on/after this timestamp
+aghast stats --json                   # raw JSON for piping to jq / spreadsheets
+```
+
+Costs are estimates derived from `config/pricing.json` (Anthropic per-million-token rates for Haiku / Sonnet / Opus). Override or extend the pricing in your runtime config — see the [Configuration Reference](configuration.md#pricing).
+
+Set the `AGHAST_HISTORY_FILE` env var (or pass `--history-file` to `aghast stats`) to use a different file — useful for shared CI dashboards.
+
+## Budget controls
+
+Use `--budget-limit-cost <usd>` and `--budget-limit-tokens <n>` to cap a single scan, or persist limits in `runtime-config.json`'s `budget` section (including per-day / week / month aggregation against historical scans). When usage hits 80% of any limit a warning is logged; at 100% the scan aborts and remaining checks are recorded as ERROR. See the [Configuration Reference](configuration.md#budget-controls) for the full schema.
 
 ---
 

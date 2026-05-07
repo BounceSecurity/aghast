@@ -6,7 +6,7 @@
 import type { AgentProvider, AgentResponse, ProviderConfig, CheckResponse, ProviderModelInfo, TokenUsage } from './types.js';
 import { DEFAULT_MODEL, FatalProviderError } from './types.js';
 // import { parseAgentResponse } from './response-parser.js';
-import { logProgress, logDebug, logDebugFull, createTimer } from './logging.js';
+import { logProgress, logDebug, logDebugFull, createTimer, getLogLevel } from './logging.js';
 import { OUTPUT_SCHEMA } from './provider-utils.js';
 
 const TAG = 'agent-provider';
@@ -76,8 +76,6 @@ export class ClaudeCodeProvider implements AgentProvider {
   private useLocalClaude: boolean = false;
   private model: string = DEFAULT_MODEL;
   private _queryFn: QueryFn | undefined;
-  private debugEnabled: boolean = false;
-
   constructor(options?: { _queryFn?: QueryFn }) {
     this._queryFn = options?._queryFn;
   }
@@ -128,10 +126,6 @@ export class ClaudeCodeProvider implements AgentProvider {
     return await listModelsViaAgentSdk();
   }
 
-  enableDebug(): void {
-    this.debugEnabled = true;
-  }
-
   async executeCheck(
     instructions: string,
     repositoryPath: string,
@@ -146,16 +140,14 @@ export class ClaudeCodeProvider implements AgentProvider {
     const prompt = instructions;
 
     logDebug(TAG, `${prefix}Starting query: model=${this.model}, cwd=${repositoryPath}, promptLen=${prompt.length}, maxTurns=${effectiveMaxTurns}`);
-    if (this.debugEnabled) {
-      logDebugFull(TAG, `${prefix}Full prompt sent to AI`, prompt);
-    }
+    logDebugFull(TAG, `${prefix}Full prompt sent to AI`, prompt);
 
     const conversation = queryFn({
       prompt,
       options: {
         model: this.model,
         cwd: repositoryPath,
-        allowedTools: ['Read', 'Glob', 'Grep', 'Bash', 'WebSearch', 'WebFetch'],
+        allowedTools: ['Read', 'Glob', 'Grep'],
         maxTurns: effectiveMaxTurns,
         permissionMode: 'bypassPermissions',
         outputFormat: {
@@ -176,6 +168,7 @@ export class ClaudeCodeProvider implements AgentProvider {
     let consecutiveApiErrors = 0;
     let currentToolName: string | undefined;
     let lastActivityTime = Date.now();
+    const trace = getLogLevel() === 'trace';
 
     // Background heartbeat timer - logs if no activity for a while
     const heartbeatInterval = setInterval(() => {
@@ -212,7 +205,15 @@ export class ClaudeCodeProvider implements AgentProvider {
               const inputStr = JSON.stringify(block.input);
               const inputPreview = inputStr.length > 100 ? inputStr.slice(0, 100) + '...' : inputStr;
               logDebug(TAG, `${prefix}Tool[${toolCallCount}]: ${block.name} ${inputPreview}`);
+              if (trace && inputStr.length > 100) logDebugFull(TAG, `${prefix}Full tool call input`, inputStr);
             }
+          }
+
+          // Log thinking blocks
+          const thinkingBlocks = content.filter((c: any) => c?.type === 'thinking' && typeof c.thinking === 'string').map((c: any) => c.thinking.trim()).filter(Boolean);
+          for (const thinking of thinkingBlocks) {
+            logDebug(TAG, `${prefix}Thinking: [${thinking.length} chars] ${thinking.slice(0, 100)}...`);
+            if (trace) logDebugFull(TAG, `${prefix}Full thinking block`, thinking);
           }
 
           // Log assistant text at debug level
@@ -221,7 +222,14 @@ export class ClaudeCodeProvider implements AgentProvider {
             .map((c: any) => c.text.trim())
             .filter(Boolean);
           if (textChunks.length > 0) {
-            logDebug(TAG, `${prefix}Assistant: ${textChunks.join(' | ')}`);
+            for (const chunk of textChunks) {
+              if (chunk.length > 200) {
+                logDebug(TAG, `${prefix}Assistant: [${chunk.length} chars] ${chunk.slice(0, 100)}...`);
+                if (trace) logDebugFull(TAG, `${prefix}Full assistant text`, chunk);
+              } else {
+                logDebug(TAG, `${prefix}Assistant: ${chunk}`);
+              }
+            }
 
             // Error detection: only check short text chunks to avoid matching the AI's
             // own analysis text (e.g., a security finding mentioning "rate limiting").
@@ -267,6 +275,19 @@ export class ClaudeCodeProvider implements AgentProvider {
         }
       }
 
+      if (message.type === 'tool_result') {
+        const toolResult = message as { tool_use_id?: string; content?: Array<{ type: string; text?: string }> };
+        const outputText = toolResult.content?.filter((c: any) => c.type === 'text').map((c: any) => c.text).join('\n') ?? '(no output)';
+        const isMultiline = outputText.includes('\n');
+        const preview = outputText.length > 300 ? outputText.slice(0, 300) + '...' : outputText;
+        if (isMultiline || outputText.length > 300) {
+          logDebug(TAG, `${prefix}Tool result [${outputText.length} chars]: ${preview}`);
+          if (trace) logDebugFull(TAG, `${prefix}Full tool result`, outputText);
+        } else {
+          logDebug(TAG, `${prefix}Tool result: ${outputText}`);
+        }
+      }
+
       if (message.type === 'result') {
         if (message.subtype === 'success') {
           resultText = message.result as string;
@@ -274,8 +295,19 @@ export class ClaudeCodeProvider implements AgentProvider {
           const resultMsg = message as {
             result: string;
             structured_output?: CheckResponse;
-            usage?: { input_tokens: number; output_tokens: number };
-            modelUsage?: Record<string, { inputTokens: number; outputTokens: number }>;
+            total_cost_usd?: number;
+            usage?: {
+              input_tokens: number;
+              output_tokens: number;
+              cache_creation_input_tokens?: number;
+              cache_read_input_tokens?: number;
+            };
+            modelUsage?: Record<string, {
+              inputTokens: number;
+              outputTokens: number;
+              cacheCreationInputTokens?: number;
+              cacheReadInputTokens?: number;
+            }>;
           };
           if (resultMsg.structured_output) {
             structuredOutput = resultMsg.structured_output;
@@ -283,22 +315,47 @@ export class ClaudeCodeProvider implements AgentProvider {
           }
           // Extract token usage if available.
           // Prefer modelUsage (camelCase, per-model breakdown) over usage (snake_case, raw API).
+          // Always use total_cost_usd from the result message as the authoritative cost.
           if (resultMsg.modelUsage && Object.keys(resultMsg.modelUsage).length > 0) {
             let inputTokens = 0;
             let outputTokens = 0;
+            let cacheCreationInputTokens: number | undefined;
+            let cacheReadInputTokens: number | undefined;
             for (const model of Object.values(resultMsg.modelUsage)) {
               inputTokens += model.inputTokens;
               outputTokens += model.outputTokens;
+              if (model.cacheCreationInputTokens !== undefined) {
+                cacheCreationInputTokens = (cacheCreationInputTokens ?? 0) + model.cacheCreationInputTokens;
+              }
+              if (model.cacheReadInputTokens !== undefined) {
+                cacheReadInputTokens = (cacheReadInputTokens ?? 0) + model.cacheReadInputTokens;
+              }
             }
-            tokenUsage = { inputTokens, outputTokens, totalTokens: inputTokens + outputTokens };
-            logDebug(TAG, `${prefix}Token usage: ${tokenUsage.inputTokens} in, ${tokenUsage.outputTokens} out, ${tokenUsage.totalTokens} total`);
+            tokenUsage = {
+              inputTokens,
+              outputTokens,
+              cacheCreationInputTokens,
+              cacheReadInputTokens,
+              totalTokens: inputTokens + outputTokens,
+              ...(resultMsg.total_cost_usd !== undefined
+                ? { reportedCost: { amountUsd: resultMsg.total_cost_usd, source: 'claude-agent-sdk' as const, ...(this.useLocalClaude ? { coveredBySubscription: true } : {}) } }
+                : {}),
+            };
+            logDebug(TAG, `${prefix}Token usage: ${tokenUsage.inputTokens} in, ${tokenUsage.outputTokens} out, ${cacheReadInputTokens ?? 0} cache-read, ${cacheCreationInputTokens ?? 0} cache-write, $${resultMsg.total_cost_usd ?? 0} reported`);
           } else if (resultMsg.usage) {
+            const cacheCreation = resultMsg.usage.cache_creation_input_tokens;
+            const cacheRead = resultMsg.usage.cache_read_input_tokens;
             tokenUsage = {
               inputTokens: resultMsg.usage.input_tokens,
               outputTokens: resultMsg.usage.output_tokens,
+              ...(cacheCreation !== undefined ? { cacheCreationInputTokens: cacheCreation } : {}),
+              ...(cacheRead !== undefined ? { cacheReadInputTokens: cacheRead } : {}),
               totalTokens: resultMsg.usage.input_tokens + resultMsg.usage.output_tokens,
+              ...(resultMsg.total_cost_usd !== undefined
+                ? { reportedCost: { amountUsd: resultMsg.total_cost_usd, source: 'claude-agent-sdk' as const, ...(this.useLocalClaude ? { coveredBySubscription: true } : {}) } }
+                : {}),
             };
-            logDebug(TAG, `${prefix}Token usage: ${tokenUsage.inputTokens} in, ${tokenUsage.outputTokens} out, ${tokenUsage.totalTokens} total`);
+            logDebug(TAG, `${prefix}Token usage: ${tokenUsage.inputTokens} in, ${tokenUsage.outputTokens} out, ${cacheRead ?? 0} cache-read, ${cacheCreation ?? 0} cache-write, $${resultMsg.total_cost_usd ?? 0} reported`);
           }
           logProgress(TAG, `${prefix}Completed in ${timer.elapsedStr()} (${turnCount} turns, ${toolCallCount} tool calls)`);
         } else {
@@ -322,9 +379,7 @@ export class ClaudeCodeProvider implements AgentProvider {
     }
 
     logDebug(TAG, `${prefix}Result: ${resultText.length} chars`);
-    if (this.debugEnabled) {
-      logDebugFull(TAG, `${prefix}Full AI response`, resultText);
-    }
+    logDebugFull(TAG, `${prefix}Full AI response`, resultText);
 
     // Structured output from SDK is required - we enforce JSON schema output mode.
     // The response parser (parseAgentResponse) is kept in the codebase as a potential

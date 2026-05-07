@@ -13,7 +13,20 @@ export const MOCK_MODEL_NAME = 'mock';
 export interface TokenUsage {
   inputTokens: number;
   outputTokens: number;
+  cacheCreationInputTokens?: number;
+  cacheReadInputTokens?: number;
+  /** OpenCode-only; billed at output rate by the calculator fallback. */
+  reasoningTokens?: number;
   totalTokens: number;
+  reportedCost?: {
+    amountUsd: number;
+    source: 'claude-agent-sdk' | 'opencode';
+    /**
+     * true when AGHAST_LOCAL_CLAUDE=true — user didn't pay this amount via API.
+     * Populated exclusively by ClaudeCodeProvider; other providers should leave it absent.
+     */
+    coveredBySubscription?: boolean;
+  };
 }
 
 // --- A.1a Check Registry Entry (Layer 1) ---
@@ -21,6 +34,7 @@ export interface TokenUsage {
 export interface CheckRegistryEntry {
   id: string;
   repositories: string[];
+  excludeRepositories?: string[];
   enabled?: boolean;
 }
 
@@ -44,6 +58,7 @@ export interface SecurityCheck {
   id: string;
   name: string;
   repositories: string[];
+  excludeRepositories?: string[];
   checkTarget?: CheckTargetDefinition;
   instructionsFile?: string;
   applicablePaths?: string[];
@@ -196,6 +211,26 @@ export interface ScanSummary {
 
 // --- Runtime Configuration (spec Section 8.1) ---
 
+export interface RuntimeBudgetConfig {
+  perScan?: {
+    maxTokens?: number;
+    maxCostUsd?: number;
+  };
+  perPeriod?: {
+    window?: 'day' | 'week' | 'month';
+    maxCostUsd?: number;
+  };
+  thresholds?: {
+    warnAt?: number;
+    abortAt?: number;
+  };
+}
+
+export interface RuntimePricingConfig {
+  currency?: string;
+  models?: Record<string, { inputPerMillion: number; outputPerMillion: number; cacheReadPerMillion?: number; cacheWritePerMillion?: number }>;
+}
+
 export interface RuntimeConfig {
   agentProvider?: {
     name?: string;
@@ -212,6 +247,8 @@ export interface RuntimeConfig {
   };
   genericPrompt?: string;
   failOnCheckFailure?: boolean;
+  budget?: RuntimeBudgetConfig;
+  pricing?: RuntimePricingConfig;
 }
 
 // --- A.6 Aggregated Report ---
@@ -302,7 +339,6 @@ export interface AgentProvider {
   checkPrerequisites?(): void;
   getModelName?(): string;
   setModel?(model: string): void;
-  enableDebug?(): void;
   cleanup?(): Promise<void>;
   /** Closed list of models this provider accepts. Used by `aghast build-config`. */
   listModels?(): Promise<readonly ProviderModelInfo[]>;

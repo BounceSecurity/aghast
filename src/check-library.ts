@@ -80,6 +80,20 @@ export async function loadCheckRegistry(configDir: string): Promise<CheckRegistr
         throw new Error(`Config file "${configPath}": checks[${i}].repositories[${j}] must be a string`);
       }
     }
+    if (obj.excludeRepositories !== undefined) {
+      if (!Array.isArray(obj.excludeRepositories)) {
+        throw new Error(
+          `Config file "${configPath}": checks[${i}].excludeRepositories must be an array`,
+        );
+      }
+      for (let j = 0; j < obj.excludeRepositories.length; j++) {
+        if (typeof obj.excludeRepositories[j] !== 'string') {
+          throw new Error(
+            `Config file "${configPath}": checks[${i}].excludeRepositories[${j}] must be a string`,
+          );
+        }
+      }
+    }
     if (obj.enabled !== undefined && typeof obj.enabled !== 'boolean') {
       throw new Error(`Config file "${configPath}": checks[${i}].enabled must be a boolean`);
     }
@@ -293,6 +307,7 @@ export async function resolveChecks(
       id: entry.id,
       name: def.name,
       repositories: entry.repositories,
+      excludeRepositories: entry.excludeRepositories,
       instructionsFile: def.instructionsFile ? resolve(folderPath, def.instructionsFile) : undefined,
       enabled: entry.enabled,
       checkDir: folderPath,
@@ -434,25 +449,32 @@ export { normalizeRepoPath } from './repository-analyzer.js';
 /**
  * Check if a single check matches the given repository URL/path.
  * Empty repositories array matches all repos.
+ * Entries in excludeRepositories override matches (exclusion wins).
  * Uses bidirectional substring matching on normalized paths.
  */
 export function checkMatchesRepository(
   check: SecurityCheck,
   repositoryUrl: string,
 ): boolean {
+  const normalizedRepo = normalizeRepoPath(repositoryUrl);
+
+  const matches = (entry: string): boolean => {
+    const normalizedEntry = normalizeRepoPath(entry);
+    return (
+      normalizedRepo.includes(normalizedEntry) ||
+      normalizedEntry.includes(normalizedRepo)
+    );
+  };
+
+  if (check.excludeRepositories && check.excludeRepositories.some(matches)) {
+    return false;
+  }
+
   if (check.repositories.length === 0) {
     return true;
   }
 
-  const normalizedRepo = normalizeRepoPath(repositoryUrl);
-
-  return check.repositories.some((checkRepo) => {
-    const normalizedCheckRepo = normalizeRepoPath(checkRepo);
-    return (
-      normalizedRepo.includes(normalizedCheckRepo) ||
-      normalizedCheckRepo.includes(normalizedRepo)
-    );
-  });
+  return check.repositories.some(matches);
 }
 
 /**

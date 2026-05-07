@@ -20,7 +20,10 @@ import { logProgress, logDebug, logDebugFull, createTimer, getLogLevel } from '.
 const execAsync = promisify(exec);
 
 const TAG = 'opencode-provider';
-const DEFAULT_OPENCODE_MODEL = 'opencode/minimax-m2.5-free';
+const DEFAULT_OPENCODE_MODEL = 'opencode/hy3-preview-free';
+
+// Tools the agent is permitted to use — everything else is denied.
+const ALLOWED_TOOL_PERMISSIONS = new Set(['read', 'glob', 'grep', 'list']);
 const HEARTBEAT_INTERVAL_MS = 15000;
 const TRACE_POLL_MS = 1000;
 const CLOSE_TIMEOUT_MS = 5000;
@@ -82,7 +85,6 @@ export class OpenCodeProvider implements AgentProvider {
   private modelID: string = '';
   private _client: OpenCodeClient | undefined;
   private _server: { url: string; close(): void } | undefined;
-  private debugEnabled: boolean = false;
   private cleanedUp: boolean = false;
   private signalHandler: (() => void) | undefined;
   /** Refcount of project markers we created, keyed by absolute repositoryPath.
@@ -173,9 +175,10 @@ export class OpenCodeProvider implements AgentProvider {
 
     const models = provider.models ? Object.keys(provider.models) : [];
     if (models.length > 0 && !models.includes(this.modelID)) {
-      const available = models.map(m => `${this.providerID}/${m}`).join(', ');
+      const availableModels = models.map(m => `${this.providerID}/${m}`).join(', ');
+      const availableProviders = providers.map(p => p.id).join(', ') || '(none)';
       throw new FatalProviderError(
-        `Model "${this.modelID}" not found for provider "${this.providerID}". Available models: ${available}`,
+        `Model "${this.modelID}" not found for provider "${this.providerID}". Available models: ${availableModels}. Available providers: ${availableProviders}.`,
       );
     }
   }
@@ -212,10 +215,6 @@ export class OpenCodeProvider implements AgentProvider {
     const parsed = parseModelString(model);
     this.providerID = parsed.providerID;
     this.modelID = parsed.modelID;
-  }
-
-  enableDebug(): void {
-    this.debugEnabled = true;
   }
 
   /** Run `fn` under an async FIFO mutex so refcount mutations and fs ops don't race. */
@@ -351,11 +350,29 @@ export class OpenCodeProvider implements AgentProvider {
     const timer = createTimer();
     const prefix = logPrefix ? `${logPrefix} ` : '';
 
+    // Build a virtual allowlist: fetch all available tool IDs and deny everything
+    // not in ALLOWED_TOOL_PERMISSIONS. This adapts automatically to new or MCP tools
+    // rather than relying on a static blocklist that could miss future additions.
+    const permission: Array<{ permission: string; pattern: string; action: 'deny' }> = [];
+    try {
+      const toolIdsResult = await client.tool.ids({ directory: repositoryPath });
+      const allToolIds = (toolIdsResult.data as string[] | undefined) ?? [];
+      for (const id of allToolIds) {
+        if (!ALLOWED_TOOL_PERMISSIONS.has(id.toLowerCase())) {
+          permission.push({ permission: id, pattern: '*', action: 'deny' });
+        }
+      }
+      logDebug(TAG, `${prefix}Permission ruleset: allowing ${[...ALLOWED_TOOL_PERMISSIONS].join(', ')}; denying ${permission.length} other tools`);
+    } catch (err) {
+      logDebug(TAG, `${prefix}Could not fetch tool IDs, skipping permission ruleset: ${err instanceof Error ? err.message : String(err)}`);
+    }
+
     // Create an isolated session for this check
     logDebug(TAG, `${prefix}Creating session for check (cwd=${repositoryPath})`);
     const sessionResult = await client.session.create({
       title: 'aghast security check',
       directory: repositoryPath,
+      ...(permission.length > 0 ? { permission } : {}),
     });
 
     const sessionId = sessionResult.data?.id;
@@ -365,9 +382,7 @@ export class OpenCodeProvider implements AgentProvider {
     logDebug(TAG, `${prefix}Session created: ${sessionId}`);
 
     logDebug(TAG, `${prefix}Starting query: model=${this.providerID}/${this.modelID}, promptLen=${instructions.length}`);
-    if (this.debugEnabled) {
-      logDebugFull(TAG, `${prefix}Full prompt sent to AI`, instructions);
-    }
+    logDebugFull(TAG, `${prefix}Full prompt sent to AI`, instructions);
 
     // At trace level, poll session messages every second for real-time progress.
     // session.prompt() blocks, but setInterval callbacks run during the await.
@@ -376,6 +391,7 @@ export class OpenCodeProvider implements AgentProvider {
     let lastActivityTime = Date.now();
     const logLevel = getLogLevel();
     const isDebugOrTrace = logLevel === 'debug' || logLevel === 'trace';
+    const trace = logLevel === 'trace';
 
     const progressInterval = isDebugOrTrace ? setInterval(async () => {
       try {
@@ -411,8 +427,13 @@ export class OpenCodeProvider implements AgentProvider {
             if (state?.status === 'running') {
               toolCallCount++;
               logDebug(TAG, `${prefix}Tool[${toolCallCount}]: ${toolName} ${inputPreview} (${timer.elapsedStr()})`);
+              if (trace && JSON.stringify(state?.input).length > 200) {
+                logDebugFull(TAG, `${prefix}Full tool call input`, JSON.stringify(state?.input));
+              }
             } else if (state?.status === 'completed') {
               logDebug(TAG, `${prefix}Tool done: ${toolName} (${timer.elapsedStr()})`);
+              const toolOutput = state?.output ?? '';
+              if (trace && toolOutput.length > 200) logDebugFull(TAG, `${prefix}Full tool output (${toolOutput.length} chars)`, toolOutput);
             } else if (state?.status === 'error') {
               // Tools can transition running → error between polls, so the "running" log
               // line may never fire for this tool. Always include the input so the user
@@ -427,6 +448,7 @@ export class OpenCodeProvider implements AgentProvider {
           } else if (part.type === 'text' && part.text) {
             const preview = part.text.length > 150 ? part.text.slice(0, 150) + '...' : part.text;
             logDebug(TAG, `${prefix}Text: ${preview}`);
+            if (trace && part.text.length > 150) logDebugFull(TAG, `${prefix}Full assistant text`, part.text);
           }
         }
         lastLoggedPartCount = parts.length;
@@ -460,8 +482,41 @@ export class OpenCodeProvider implements AgentProvider {
       clearInterval(heartbeatInterval);
     }
 
-    const info = promptResult.data?.info;
-    const parts = promptResult.data?.parts;
+    let info = promptResult.data?.info;
+    let parts = promptResult.data?.parts;
+
+    // Some providers (e.g. OpenRouter routing) reject requests when tool_choice is set,
+    // which is how OpenCode enforces the permission denylist. Detect this and retry once
+    // without restrictions so the scan can still complete (security mitigation won't apply).
+    if (
+      permission.length > 0 &&
+      info?.error?.name === 'APIError'
+    ) {
+      const rawErrMsg = 'data' in info.error && info.error.data && typeof info.error.data === 'object' && 'message' in info.error.data
+        ? String((info.error.data as { message: unknown }).message)
+        : info.error.name;
+      if (/tool.?choice/i.test(rawErrMsg)) {
+        logProgress(TAG, `${prefix}Warning: provider does not support tool restrictions (tool_choice unsupported) — retrying without permission ruleset. The prompt injection security mitigation will not apply for this check.`);
+        const retrySession = await client.session.create({
+          title: 'aghast security check',
+          directory: repositoryPath,
+        });
+        const retrySessionId = retrySession.data?.id;
+        if (!retrySessionId) {
+          throw new Error('Failed to create OpenCode retry session — no session ID returned');
+        }
+        // Omit json_schema format — OpenCode also uses tool_choice to enforce structured
+        // output, which would trigger the same error. Text parsing handles the response instead.
+        const retryResult = await client.session.prompt({
+          sessionID: retrySessionId,
+          model: { providerID: this.providerID, modelID: this.modelID },
+          parts: [{ type: 'text' as const, text: instructions }],
+          directory: repositoryPath,
+        });
+        info = retryResult.data?.info;
+        parts = retryResult.data?.parts;
+      }
+    }
 
     // Check for errors on the assistant message
     if (info?.error) {
@@ -494,14 +549,35 @@ export class OpenCodeProvider implements AgentProvider {
       const tokens = info.tokens;
       const inputTokens = tokens.input ?? 0;
       const outputTokens = tokens.output ?? 0;
-      tokenUsage = { inputTokens, outputTokens, totalTokens: inputTokens + outputTokens };
-      logDebug(TAG, `${prefix}Token usage: ${tokenUsage.inputTokens} in, ${tokenUsage.outputTokens} out`);
+      const reasoningTokens = tokens.reasoning !== undefined && tokens.reasoning > 0
+        ? tokens.reasoning
+        : undefined;
+      const cacheReadInputTokens = tokens.cache?.read !== undefined && tokens.cache.read > 0
+        ? tokens.cache.read
+        : undefined;
+      const cacheCreationInputTokens = tokens.cache?.write !== undefined && tokens.cache.write > 0
+        ? tokens.cache.write
+        : undefined;
+      const reportedCost = typeof info.cost === 'number'
+        ? { amountUsd: info.cost, source: 'opencode' as const }
+        : undefined;
+      tokenUsage = {
+        inputTokens,
+        outputTokens,
+        ...(reasoningTokens !== undefined ? { reasoningTokens } : {}),
+        ...(cacheReadInputTokens !== undefined ? { cacheReadInputTokens } : {}),
+        ...(cacheCreationInputTokens !== undefined ? { cacheCreationInputTokens } : {}),
+        totalTokens: inputTokens + outputTokens,
+        ...(reportedCost !== undefined ? { reportedCost } : {}),
+      };
+      logDebug(TAG, `${prefix}Token usage: ${inputTokens} in, ${outputTokens} out${reasoningTokens !== undefined ? `, ${reasoningTokens} reasoning` : ''}${cacheReadInputTokens !== undefined ? `, ${cacheReadInputTokens} cache-read` : ''}${cacheCreationInputTokens !== undefined ? `, ${cacheCreationInputTokens} cache-write` : ''}${reportedCost !== undefined ? `, $${reportedCost.amountUsd} reported` : ''}`);
     }
 
     // Try structured output first (v2 API: info.structured)
     if (info?.structured) {
       const structuredOutput = info.structured as CheckResponse;
       logDebug(TAG, `${prefix}Structured output: ${structuredOutput.issues?.length ?? 0} issues`);
+      logDebugFull(TAG, `${prefix}Full AI response (structured)`, JSON.stringify(structuredOutput, null, 2));
       logProgress(TAG, `${prefix}Completed in ${timer.elapsedStr()} (${toolCallCount} tool calls)`);
       const rawText = extractTextFromParts(parts);
       return { raw: rawText, parsed: structuredOutput, tokenUsage };
@@ -511,9 +587,7 @@ export class OpenCodeProvider implements AgentProvider {
     const rawText = extractTextFromParts(parts);
     logDebug(TAG, `${prefix}No structured output — falling back to text parsing (${rawText.length} chars)`);
 
-    if (this.debugEnabled) {
-      logDebugFull(TAG, `${prefix}Full AI response`, rawText);
-    }
+    logDebugFull(TAG, `${prefix}Full AI response`, rawText);
 
     if (!rawText) {
       throw new Error('OpenCode AI returned no text response');

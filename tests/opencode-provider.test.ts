@@ -50,12 +50,15 @@ interface PromptCall {
  * - session.prompt() blocks and returns the final response
  * - session.messages() returns messages for progress polling
  */
+const DEFAULT_MOCK_TOOL_IDS = ['read', 'glob', 'grep', 'list', 'bash', 'edit', 'webfetch', 'websearch'];
+
 function createMockClient(options?: {
   providers?: MockProvider[];
   promptResponse?: {
     info?: Record<string, unknown>;
     parts?: Array<{ type: string; text?: string }>;
   };
+  toolIds?: string[];
 }) {
   const providers = options?.providers ?? [
     {
@@ -77,6 +80,8 @@ function createMockClient(options?: {
     parts: [{ type: 'text', text: '{"issues": []}' }],
   };
 
+  const toolIds = options?.toolIds ?? DEFAULT_MOCK_TOOL_IDS;
+
   const calls: {
     sessionCreate: Array<Record<string, unknown>>;
     prompt: PromptCall[];
@@ -89,6 +94,9 @@ function createMockClient(options?: {
       providers: async () => ({
         data: { providers },
       }),
+    },
+    tool: {
+      ids: async () => ({ data: toolIds }),
     },
     session: {
       create: async (params: Record<string, unknown>) => {
@@ -123,13 +131,13 @@ describe('OpenCodeProvider — model parsing', () => {
     assert.equal(provider.getModelName(), 'test-provider/test-model');
   });
 
-  it('defaults to opencode/minimax-m2.5-free when no model specified', async () => {
+  it('defaults to opencode/hy3-preview-free when no model specified', async () => {
     const client = createMockClient({
-      providers: [{ id: 'opencode', name: 'OpenCode', models: { 'minimax-m2.5-free': { name: 'MiniMax M2.5 Free' } } }],
+      providers: [{ id: 'opencode', name: 'OpenCode', models: { 'hy3-preview-free': { name: 'HY3 Preview Free' } } }],
     });
     const provider = new OpenCodeProvider({ _client: client as never });
     await provider.initialize({});
-    assert.equal(provider.getModelName(), 'opencode/minimax-m2.5-free');
+    assert.equal(provider.getModelName(), 'opencode/hy3-preview-free');
   });
 
   it('throws on model string without slash', async () => {
@@ -206,6 +214,13 @@ describe('OpenCodeProvider — executeCheck', () => {
 
     assert.equal(client.calls.sessionCreate.length, 1);
     assert.equal(client.calls.sessionCreate[0].directory, '/repo/path');
+    // Dynamic allowlist: DEFAULT_MOCK_TOOL_IDS minus the allowed set (read, glob, grep, list)
+    assert.deepEqual(client.calls.sessionCreate[0].permission, [
+      { permission: 'bash', pattern: '*', action: 'deny' },
+      { permission: 'edit', pattern: '*', action: 'deny' },
+      { permission: 'webfetch', pattern: '*', action: 'deny' },
+      { permission: 'websearch', pattern: '*', action: 'deny' },
+    ]);
 
     assert.equal(client.calls.prompt.length, 1);
     const promptCall = client.calls.prompt[0];
@@ -283,6 +298,34 @@ describe('OpenCodeProvider — executeCheck', () => {
       () => provider.executeCheck('find vulns', '/repo'),
       /no text response/,
     );
+  });
+
+  it('denies all tools not in the allowlist (dynamic virtual allowlist)', async () => {
+    const client = createMockClient({
+      toolIds: ['read', 'glob', 'grep', 'list', 'bash', 'edit', 'webfetch', 'mcp_custom_tool'],
+    });
+    const provider = new OpenCodeProvider({ _client: client as never });
+    await provider.initialize({ model: 'test-provider/test-model' });
+
+    await provider.executeCheck('test', '/repo');
+
+    assert.deepEqual(client.calls.sessionCreate[0].permission, [
+      { permission: 'bash', pattern: '*', action: 'deny' },
+      { permission: 'edit', pattern: '*', action: 'deny' },
+      { permission: 'webfetch', pattern: '*', action: 'deny' },
+      { permission: 'mcp_custom_tool', pattern: '*', action: 'deny' },
+    ]);
+  });
+
+  it('creates session without permission rules when tool.ids() fails', async () => {
+    const client = createMockClient();
+    client.tool.ids = async () => { throw new Error('endpoint unavailable'); };
+    const provider = new OpenCodeProvider({ _client: client as never });
+    await provider.initialize({ model: 'test-provider/test-model' });
+
+    await provider.executeCheck('test', '/repo');
+
+    assert.equal(client.calls.sessionCreate[0].permission, undefined);
   });
 
   it('throws Error on session creation failure', async () => {
@@ -399,12 +442,6 @@ describe('OpenCodeProvider — cleanup', () => {
     provider.checkPrerequisites();
   });
 
-  it('enableDebug sets debug mode', async () => {
-    const client = createMockClient();
-    const provider = new OpenCodeProvider({ _client: client as never });
-    provider.enableDebug();
-    await provider.initialize({ model: 'test-provider/test-model' });
-  });
 });
 
 describe('OpenCodeProvider — listModels', () => {
@@ -689,3 +726,73 @@ function expect_output_schema() {
     additionalProperties: false,
   };
 }
+
+describe('OpenCodeProvider — token usage enrichment', () => {
+  it('extracts reasoning, cache, and reportedCost from provider response', async () => {
+    const client = createMockClient({
+      promptResponse: {
+        info: {
+          role: 'assistant',
+          cost: 0.0789,
+          tokens: { input: 500, output: 100, reasoning: 50, cache: { read: 4000, write: 200 } },
+          structured: { issues: [] },
+        },
+        parts: [{ type: 'text', text: '{"issues":[]}' }],
+      },
+    });
+    const provider = new OpenCodeProvider({ _client: client as never });
+    await provider.initialize({ model: 'test-provider/test-model' });
+
+    const result = await provider.executeCheck('test prompt', '/tmp/repo');
+    assert.ok(result.tokenUsage, 'Should have tokenUsage');
+    assert.equal(result.tokenUsage!.inputTokens, 500);
+    assert.equal(result.tokenUsage!.outputTokens, 100);
+    assert.equal(result.tokenUsage!.reasoningTokens, 50);
+    assert.equal(result.tokenUsage!.cacheReadInputTokens, 4000);
+    assert.equal(result.tokenUsage!.cacheCreationInputTokens, 200);
+    assert.ok(result.tokenUsage!.reportedCost, 'Should have reportedCost');
+    assert.equal(result.tokenUsage!.reportedCost!.amountUsd, 0.0789);
+    assert.equal(result.tokenUsage!.reportedCost!.source, 'opencode');
+  });
+
+  it('omits reasoningTokens when reasoning is 0', async () => {
+    const client = createMockClient({
+      promptResponse: {
+        info: {
+          role: 'assistant',
+          cost: 0.001,
+          tokens: { input: 100, output: 50, reasoning: 0, cache: { read: 0, write: 0 } },
+          structured: { issues: [] },
+        },
+        parts: [{ type: 'text', text: '{"issues":[]}' }],
+      },
+    });
+    const provider = new OpenCodeProvider({ _client: client as never });
+    await provider.initialize({ model: 'test-provider/test-model' });
+
+    const result = await provider.executeCheck('test prompt', '/tmp/repo');
+    assert.ok(result.tokenUsage, 'Should have tokenUsage');
+    assert.equal(result.tokenUsage!.reasoningTokens, undefined);
+    assert.equal(result.tokenUsage!.cacheReadInputTokens, undefined);
+    assert.equal(result.tokenUsage!.cacheCreationInputTokens, undefined);
+  });
+
+  it('does not set reportedCost when cost is absent from info', async () => {
+    const client = createMockClient({
+      promptResponse: {
+        info: {
+          role: 'assistant',
+          tokens: { input: 100, output: 50, reasoning: 0, cache: { read: 0, write: 0 } },
+          structured: { issues: [] },
+        },
+        parts: [{ type: 'text', text: '{"issues":[]}' }],
+      },
+    });
+    const provider = new OpenCodeProvider({ _client: client as never });
+    await provider.initialize({ model: 'test-provider/test-model' });
+
+    const result = await provider.executeCheck('test prompt', '/tmp/repo');
+    assert.ok(result.tokenUsage, 'Should have tokenUsage');
+    assert.equal(result.tokenUsage!.reportedCost, undefined);
+  });
+});

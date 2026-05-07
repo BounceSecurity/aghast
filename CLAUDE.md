@@ -60,6 +60,7 @@ The `aghast` binary provides subcommands:
 - `aghast scan <repo-path> --config-dir <path> [options]` — Run security checks against a repository
 - `aghast new-check --config-dir <path> [options]` — Scaffold a new security check (bootstraps config dir if needed)
 - `aghast build-config --config-dir <path> [options]` — Build or edit `runtime-config.json` (interactive by default; `--non-interactive` plus field flags for scripted use; `--clear <field>` removes a field). Loads existing values if present so unspecified fields are preserved
+- `aghast stats [options]` — Print a cost summary table from the local scan history (`~/.aghast/history.json`). Filter by `--repo`, `--model`, `--since`, `--until`; `--json` emits raw JSON
 - `aghast --help` — Show usage
 - `aghast --version` — Print version from package.json
 
@@ -107,6 +108,8 @@ npm run scan -- /path/to/target --config-dir checks-config
 - `AGHAST_MOCK_AI` — Enables mock agent provider. Set to `true` for default `{"issues":[]}` response, or set to a file path
 - `AGHAST_MOCK_SEMGREP` — Path to SARIF file for mock Semgrep output
 - `AGHAST_OPENANT_DATASET` — Path to a pre-generated OpenAnt dataset JSON file (skips invoking `openant parse`)
+- `AGHAST_HISTORY_FILE` — Override the scan history file path (default: `~/.aghast/history.json`)
+- `AGHAST_MOCK_TOKENS` — Format `<input>,<output>`; injects token usage into the mock agent provider for cost/budget tests
 - `AGHAST_DEBUG_PRINTPROMPT` — Print full prompts (requires `--debug`)
 - `NO_COLOR` — Set to `1` to disable colored CLI output (standard; respected automatically by `picocolors`)
 
@@ -143,6 +146,11 @@ Precedence: CLI flags > environment variables > runtime config > built-in defaul
 - `src/colors.ts` — Color helpers for CLI output (wraps `picocolors`, respects `NO_COLOR`)
 - `src/logging.ts` — Pluggable logging system with standard levels (`error`, `warn`, `info`, `debug`, `trace`), `LogHandler` interface, `ConsoleHandler`, `FileHandler`, handler registry
 - `src/runtime-config.ts` — Runtime configuration loader (`loadRuntimeConfig`); supports `--runtime-config` CLI flag
+- `src/cost-calculator.ts` — Cost estimator: maps token usage to USD using `config/pricing.json` (mergeable with runtime-config `pricing` section)
+- `src/scan-history.ts` — Persisted scan-history (`~/.aghast/history.json`): `saveScanRecord`, `queryScanHistory`. Tolerates corrupt files; falls back to `.aghast-history.json` when no homedir
+- `src/budget.ts` — Budget controls: `checkBudget` (per-scan + per-period day/week/month limits) and `BudgetExceededError` (raised by scan-runner to abort)
+- `src/stats.ts` — `aghast stats` subcommand (cost summary table from history)
+- `config/pricing.json` — Built-in per-model pricing seed (Haiku/Sonnet/Opus)
 - `src/new-check.ts` — Check scaffolding CLI utility (exports `runNewCheck(args)`); bootstraps config directory
 - `src/build-config.ts` — Runtime-config builder CLI utility (exports `runBuildConfig(args)`); supports interactive + flag-driven modes, loads + edits existing files, validates against closed lists from provider/formatter/logging registries
 - `src/formatters/index.ts` — Formatter registry
@@ -165,7 +173,7 @@ Precedence: CLI flags > environment variables > runtime config > built-in defaul
 
 ## Conventions
 
-- **Error codes**: All CLI error paths must use codes from `src/error-codes.ts` via `formatError()`. Numbering scheme: E1xxx=CLI parsing, E2xxx=configuration, E3xxx=agent provider, E4xxx=repository/target validation, E5xxx=Semgrep, E9xxx=internal/fatal.
+- **Error codes**: All CLI error paths must use codes from `src/error-codes.ts` via `formatError()`. Numbering scheme: E1xxx=CLI parsing, E2xxx=configuration, E3xxx=agent provider, E4xxx=repository/target validation, E5xxx=Semgrep, E6xxx=OpenAnt, E70xx=budget, E9xxx=internal/fatal.
 - **Color output**: Use helpers from `src/colors.ts` for colored output, never raw ANSI codes. The `NO_COLOR` env var is respected automatically via `picocolors`.
 
 ## Development Workflow
