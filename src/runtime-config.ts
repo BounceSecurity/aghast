@@ -81,6 +81,98 @@ export async function loadRuntimeConfig(configDir?: string, explicitPath?: strin
   if (obj.failOnCheckFailure !== undefined && typeof obj.failOnCheckFailure !== 'boolean') {
     throw new Error(`Runtime config "${pathToLoad}": "failOnCheckFailure" must be a boolean`);
   }
+  if (obj.budget !== undefined) {
+    if (typeof obj.budget !== 'object' || obj.budget === null || Array.isArray(obj.budget)) {
+      throw new Error(`Runtime config "${pathToLoad}": "budget" must be an object`);
+    }
+    const budget = obj.budget as Record<string, unknown>;
+    if (budget.perScan !== undefined) {
+      if (typeof budget.perScan !== 'object' || budget.perScan === null || Array.isArray(budget.perScan)) {
+        throw new Error(`Runtime config "${pathToLoad}": "budget.perScan" must be an object`);
+      }
+      const ps = budget.perScan as Record<string, unknown>;
+      if (ps.maxTokens !== undefined) {
+        if (typeof ps.maxTokens !== 'number' || !Number.isFinite(ps.maxTokens) || ps.maxTokens < 0) {
+          throw new Error(`Runtime config "${pathToLoad}": "budget.perScan.maxTokens" must be a non-negative number`);
+        }
+      }
+      if (ps.maxCostUsd !== undefined) {
+        if (typeof ps.maxCostUsd !== 'number' || !Number.isFinite(ps.maxCostUsd) || ps.maxCostUsd < 0) {
+          throw new Error(`Runtime config "${pathToLoad}": "budget.perScan.maxCostUsd" must be a non-negative number`);
+        }
+      }
+    }
+    if (budget.perPeriod !== undefined) {
+      if (typeof budget.perPeriod !== 'object' || budget.perPeriod === null || Array.isArray(budget.perPeriod)) {
+        throw new Error(`Runtime config "${pathToLoad}": "budget.perPeriod" must be an object`);
+      }
+      const pp = budget.perPeriod as Record<string, unknown>;
+      if (pp.window !== undefined && pp.window !== 'day' && pp.window !== 'week' && pp.window !== 'month') {
+        throw new Error(`Runtime config "${pathToLoad}": "budget.perPeriod.window" must be "day", "week", or "month"`);
+      }
+      if (pp.maxCostUsd !== undefined) {
+        if (typeof pp.maxCostUsd !== 'number' || !Number.isFinite(pp.maxCostUsd) || pp.maxCostUsd < 0) {
+          throw new Error(`Runtime config "${pathToLoad}": "budget.perPeriod.maxCostUsd" must be a non-negative number`);
+        }
+      }
+      // perPeriod requires both window and maxCostUsd to be functional. Reject
+      // partial config so misconfiguration is loud, not silently dropped at
+      // runtime. (The dual-undefined case is naturally caught by either
+      // single-field check below — they fire in source order, the window check
+      // wins. No separate guard needed.)
+      if (pp.window === undefined) {
+        throw new Error(`Runtime config "${pathToLoad}": "budget.perPeriod.window" is required when "budget.perPeriod" is set (must be "day", "week", or "month")`);
+      }
+      if (pp.maxCostUsd === undefined) {
+        throw new Error(`Runtime config "${pathToLoad}": "budget.perPeriod.maxCostUsd" is required when "budget.perPeriod" is set`);
+      }
+    }
+    if (budget.thresholds !== undefined) {
+      if (typeof budget.thresholds !== 'object' || budget.thresholds === null || Array.isArray(budget.thresholds)) {
+        throw new Error(`Runtime config "${pathToLoad}": "budget.thresholds" must be an object`);
+      }
+      const th = budget.thresholds as Record<string, unknown>;
+      if (th.warnAt !== undefined) {
+        if (typeof th.warnAt !== 'number' || !Number.isFinite(th.warnAt) || th.warnAt < 0) {
+          throw new Error(`Runtime config "${pathToLoad}": "budget.thresholds.warnAt" must be a non-negative number`);
+        }
+      }
+      if (th.abortAt !== undefined) {
+        if (typeof th.abortAt !== 'number' || !Number.isFinite(th.abortAt) || th.abortAt < 0) {
+          throw new Error(`Runtime config "${pathToLoad}": "budget.thresholds.abortAt" must be a non-negative number`);
+        }
+      }
+    }
+  }
+  if (obj.pricing !== undefined) {
+    if (typeof obj.pricing !== 'object' || obj.pricing === null || Array.isArray(obj.pricing)) {
+      throw new Error(`Runtime config "${pathToLoad}": "pricing" must be an object`);
+    }
+    const pricing = obj.pricing as Record<string, unknown>;
+    if (pricing.currency !== undefined && typeof pricing.currency !== 'string') {
+      throw new Error(`Runtime config "${pathToLoad}": "pricing.currency" must be a string`);
+    }
+    if (pricing.models !== undefined) {
+      if (typeof pricing.models !== 'object' || pricing.models === null || Array.isArray(pricing.models)) {
+        throw new Error(`Runtime config "${pathToLoad}": "pricing.models" must be an object`);
+      }
+      for (const [modelName, def] of Object.entries(pricing.models as Record<string, unknown>)) {
+        if (!def || typeof def !== 'object' || Array.isArray(def)) {
+          throw new Error(`Runtime config "${pathToLoad}": "pricing.models.${modelName}" must be an object`);
+        }
+        const d = def as Record<string, unknown>;
+        if (typeof d.inputPerMillion !== 'number' || typeof d.outputPerMillion !== 'number') {
+          throw new Error(`Runtime config "${pathToLoad}": "pricing.models.${modelName}" must have numeric "inputPerMillion" and "outputPerMillion"`);
+        }
+        if (!Number.isFinite(d.inputPerMillion) || d.inputPerMillion < 0) {
+          throw new Error(`Runtime config "${pathToLoad}": "pricing.models.${modelName}.inputPerMillion" must be a non-negative number`);
+        }
+        if (!Number.isFinite(d.outputPerMillion) || d.outputPerMillion < 0) {
+          throw new Error(`Runtime config "${pathToLoad}": "pricing.models.${modelName}.outputPerMillion" must be a non-negative number`);
+        }
+      }
+    }
+  }
   if (obj.logging !== undefined) {
     if (typeof obj.logging !== 'object' || obj.logging === null || Array.isArray(obj.logging)) {
       throw new Error(`Runtime config "${pathToLoad}": "logging" must be an object`);

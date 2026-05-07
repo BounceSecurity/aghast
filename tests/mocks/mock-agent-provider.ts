@@ -97,10 +97,6 @@ export class MockAgentProvider implements AgentProvider {
     return this.options.validConfig ?? true;
   }
 
-  enableDebug(): void {
-    // No-op for mock provider
-  }
-
   /** Update response configuration between calls. */
   setResponse(response: CheckResponse): void {
     this.options.response = response;

@@ -46,17 +46,21 @@ The check registry controls which checks are available and which repositories th
     {
       "id": "aghast-sqli",
       "repositories": [],
+      "excludeRepositories": ["https://github.com/org/legacy-monolith"],
       "enabled": true
     }
   ]
 }
 ```
 
-| Field          | Type       | Required | Description |
-|----------------|------------|----------|-------------|
-| `id`           | `string`   | Yes      | Unique check ID (must match the check folder name) |
-| `repositories` | `string[]` | Yes      | Repository URLs this check applies to. Empty array `[]` means all repositories |
-| `enabled`      | `boolean`  | No       | Set to `false` to disable a check (default: `true`) |
+| Field                 | Type       | Required | Description |
+|-----------------------|------------|----------|-------------|
+| `id`                  | `string`   | Yes      | Unique check ID (must match the check folder name) |
+| `repositories`        | `string[]` | Yes      | Repository URLs this check applies to. Empty array `[]` means all repositories |
+| `excludeRepositories` | `string[]` | No       | Repository URLs to skip for this check. Exclusion wins over inclusion. Useful with `"repositories": []` for "all repos except these" |
+| `enabled`             | `boolean`  | No       | Set to `false` to disable a check (default: `true`) |
+
+Repository matching (for both `repositories` and `excludeRepositories`) uses bidirectional substring matching on normalized paths — so `"foo"` matches both `org/foo` and `org/foobar`. If the same string appears in both lists, exclusion wins.
 
 ## Layer 2: Check Definition (`<id>.json`)
 
@@ -254,9 +258,36 @@ An optional `runtime-config.json` file in the config directory (or specified via
     "level": "info"
   },
   "genericPrompt": "generic-instructions.md",
-  "failOnCheckFailure": false
+  "failOnCheckFailure": false,
+  "budget": {
+    "perScan": { "maxCostUsd": 5.00, "maxTokens": 10000000 },
+    "perPeriod": { "window": "day", "maxCostUsd": 25.00 },
+    "thresholds": { "warnAt": 0.8, "abortAt": 1.0 }
+  },
+  "pricing": {
+    "currency": "USD",
+    "models": {
+      "my-custom-model": { "inputPerMillion": 2.0, "outputPerMillion": 8.0 }
+    }
+  }
 }
 ```
+
+### Budget controls
+
+When `budget` is set, the scan runner evaluates the limit before each AI call:
+
+- **`continue`** — under the warn threshold, the scan proceeds silently.
+- **`warn`** — at or above `thresholds.warnAt` (default 80%), a warning is logged once.
+- **`abort`** — at or above `thresholds.abortAt` (default 100%), the scan stops. The remaining checks are recorded as ERROR and the CLI exits non-zero.
+
+The `--budget-limit-cost <usd>` and `--budget-limit-tokens <n>` CLI flags override `budget.perScan` for a single scan.
+
+The `perPeriod` limit aggregates cost across historical scans (from `~/.aghast/history.json`) plus the in-flight scan. The window starts at midnight UTC for `day`, Monday 00:00 UTC for `week`, or the first of the month for `month`.
+
+### Pricing
+
+The built-in `config/pricing.json` provides per-million-token rates for the default Claude models. Add or override entries via `runtime-config.json`'s `pricing.models` section. Costs are estimates only — provider prices change over time.
 
 | Field                           | Type       | Default | Description |
 |---------------------------------|------------|---------|-------------|
@@ -269,6 +300,14 @@ An optional `runtime-config.json` file in the config directory (or specified via
 | `logging.level`                 | `string`   | `info` | Console log level: `error`, `warn`, `info`, `debug`, `trace` |
 | `genericPrompt`                 | `string`   | `generic-instructions.md` | Generic prompt template filename |
 | `failOnCheckFailure`            | `boolean`  | `false` | Exit with code 1 if any check FAILs or ERRORs |
+| `budget.perScan.maxTokens`      | `number`   | (none) | Abort scan when accumulated tokens exceed this value |
+| `budget.perScan.maxCostUsd`     | `number`   | (none) | Abort scan when accumulated cost exceeds this USD value |
+| `budget.perPeriod.window`       | `string`   | (none) | `day`, `week`, or `month` window for the period limit |
+| `budget.perPeriod.maxCostUsd`   | `number`   | (none) | Abort when total cost across the period (history + current scan) exceeds this USD value |
+| `budget.thresholds.warnAt`      | `number`   | `0.8` | Fraction of a limit at which a warning is logged (0.0–1.0) |
+| `budget.thresholds.abortAt`     | `number`   | `1.0` | Fraction of a limit at which the scan aborts (0.0–1.0) |
+| `pricing.currency`              | `string`   | `USD` | Currency for cost estimates |
+| `pricing.models`                | `object`   | (built-in) | Per-model overrides: `{ "<model>": { "inputPerMillion": <usd>, "outputPerMillion": <usd> } }`. Merges with built-in defaults |
 
 **Precedence**: CLI flags > environment variables > runtime config > built-in defaults.
 

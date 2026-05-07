@@ -53,6 +53,9 @@ export const ERROR_CODES = {
   E6001: ec('E6001', 'OpenAnt not installed'),
   E6002: ec('E6002', 'OpenAnt execution failed'),
 
+  // E7xxx — Budget / cost controls
+  E7001: ec('E7001', 'Budget limit exceeded'),
+
   // E9xxx — Internal
   E9001: ec('E9001', 'Fatal internal error'),
 } as const;

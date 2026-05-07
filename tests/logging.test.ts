@@ -429,12 +429,8 @@ test('logDebugFull dispatches as trace level', async () => {
     await closeAllHandlers();
     const content = await readFile(logPath, 'utf-8');
     assert.ok(content.includes('[trace]'));
-    assert.ok(content.includes('[base64]'), 'Trace data should be base64-encoded');
-    // Verify the base64 decodes back to original data
-    const b64Match = content.match(/\[base64\] (.+)/);
-    assert.ok(b64Match, 'Should have base64 content');
-    const decoded = Buffer.from(b64Match![1].trim(), 'base64').toString('utf-8');
-    assert.equal(decoded, 'complete-string');
+    assert.ok(content.includes('complete-string'), 'Trace data should appear as plain text in file');
+    assert.ok(content.includes('--- end ---'), 'Should have end marker after data');
   } finally {
     try { await unlink(logPath); } catch { /* ignore */ }
   }

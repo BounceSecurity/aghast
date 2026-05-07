@@ -274,6 +274,121 @@ describe('ClaudeCodeProvider: token usage extraction', () => {
     const result = await provider.executeCheck('test prompt', '/tmp/repo');
     assert.equal(result.tokenUsage, undefined, 'Should not have tokenUsage');
   });
+
+  it('extracts cache tokens and total_cost_usd from modelUsage result', async () => {
+    const messages = [
+      assistantMsg('Analyzing...'),
+      {
+        type: 'result',
+        subtype: 'success',
+        result: '{"issues":[]}',
+        structured_output: { issues: [] },
+        total_cost_usd: 0.0123,
+        modelUsage: {
+          'claude-sonnet-4-20250514': {
+            inputTokens: 1000,
+            outputTokens: 200,
+            cacheCreationInputTokens: 500,
+            cacheReadInputTokens: 8000,
+          },
+        },
+      },
+    ];
+
+    const provider = new ClaudeCodeProvider({ _queryFn: createFakeQueryFn(messages) });
+    await provider.initialize({ apiKey: 'test-key' });
+
+    const result = await provider.executeCheck('test prompt', '/tmp/repo');
+    assert.ok(result.tokenUsage, 'Should have tokenUsage');
+    assert.equal(result.tokenUsage!.inputTokens, 1000);
+    assert.equal(result.tokenUsage!.outputTokens, 200);
+    assert.equal(result.tokenUsage!.cacheCreationInputTokens, 500);
+    assert.equal(result.tokenUsage!.cacheReadInputTokens, 8000);
+    assert.ok(result.tokenUsage!.reportedCost, 'Should have reportedCost');
+    assert.equal(result.tokenUsage!.reportedCost!.amountUsd, 0.0123);
+    assert.equal(result.tokenUsage!.reportedCost!.source, 'claude-agent-sdk');
+  });
+
+  it('extracts cache tokens and total_cost_usd from usage (snake_case) fallback', async () => {
+    const messages = [
+      assistantMsg('Analyzing...'),
+      {
+        type: 'result',
+        subtype: 'success',
+        result: '{"issues":[]}',
+        structured_output: { issues: [] },
+        total_cost_usd: 0.0456,
+        usage: {
+          input_tokens: 2000,
+          output_tokens: 300,
+          cache_creation_input_tokens: 600,
+          cache_read_input_tokens: 9000,
+        },
+      },
+    ];
+
+    const provider = new ClaudeCodeProvider({ _queryFn: createFakeQueryFn(messages) });
+    await provider.initialize({ apiKey: 'test-key' });
+
+    const result = await provider.executeCheck('test prompt', '/tmp/repo');
+    assert.ok(result.tokenUsage, 'Should have tokenUsage');
+    assert.equal(result.tokenUsage!.inputTokens, 2000);
+    assert.equal(result.tokenUsage!.outputTokens, 300);
+    assert.equal(result.tokenUsage!.cacheCreationInputTokens, 600);
+    assert.equal(result.tokenUsage!.cacheReadInputTokens, 9000);
+    assert.ok(result.tokenUsage!.reportedCost, 'Should have reportedCost');
+    assert.equal(result.tokenUsage!.reportedCost!.amountUsd, 0.0456);
+    assert.equal(result.tokenUsage!.reportedCost!.source, 'claude-agent-sdk');
+  });
+
+  it('does not set reportedCost when total_cost_usd is absent', async () => {
+    const messages = [
+      assistantMsg('Analyzing...'),
+      successResultWithModelUsage(100, 50),
+    ];
+
+    const provider = new ClaudeCodeProvider({ _queryFn: createFakeQueryFn(messages) });
+    await provider.initialize({ apiKey: 'test-key' });
+
+    const result = await provider.executeCheck('test prompt', '/tmp/repo');
+    assert.ok(result.tokenUsage, 'Should have tokenUsage');
+    assert.equal(result.tokenUsage!.reportedCost, undefined);
+  });
+
+  it('sets reportedCost.coveredBySubscription when AGHAST_LOCAL_CLAUDE=true', async () => {
+    const savedEnv = process.env.AGHAST_LOCAL_CLAUDE;
+    process.env.AGHAST_LOCAL_CLAUDE = 'true';
+    try {
+      const messages = [
+        assistantMsg('Analyzing...'),
+        {
+          type: 'result',
+          subtype: 'success',
+          result: '{"issues":[]}',
+          structured_output: { issues: [] },
+          total_cost_usd: 0.0500,
+          modelUsage: {
+            'claude-sonnet-4-20250514': { inputTokens: 1000, outputTokens: 200 },
+          },
+        },
+      ];
+
+      const provider = new ClaudeCodeProvider({ _queryFn: createFakeQueryFn(messages) });
+      await provider.initialize({});
+
+      const result = await provider.executeCheck('test prompt', '/tmp/repo');
+      assert.ok(result.tokenUsage?.reportedCost, 'Should have reportedCost');
+      assert.equal(result.tokenUsage!.reportedCost!.amountUsd, 0.0500);
+      assert.equal(result.tokenUsage!.reportedCost!.source, 'claude-agent-sdk');
+      assert.equal(result.tokenUsage!.reportedCost!.coveredBySubscription, true);
+    } finally {
+      if (savedEnv === undefined) {
+        delete process.env.AGHAST_LOCAL_CLAUDE;
+      } else {
+        process.env.AGHAST_LOCAL_CLAUDE = savedEnv;
+      }
+    }
+  });
 });
 
 describe('ClaudeCodeProvider: fatal error handling (401 auth)', () => {
@@ -373,12 +488,128 @@ describe('ClaudeCodeProvider: fatal error handling (not logged in)', () => {
   });
 });
 
-describe('ClaudeCodeProvider: enableDebug', () => {
-  it('enableDebug method exists and does not throw', async () => {
-    const provider = new ClaudeCodeProvider({ _queryFn: createFakeQueryFn([successResult()]) });
-    await provider.initialize({ apiKey: 'test-key' });
+describe('ClaudeCodeProvider: tool restrictions', () => {
+  it('passes only read-only tools in allowedTools', async () => {
+    let capturedOptions: Record<string, unknown> | undefined;
+    const capturingQueryFn: QueryFn = function* (params) {
+      capturedOptions = params.options as Record<string, unknown>;
+      yield successResult();
+    } as unknown as QueryFn;
 
-    assert.equal(typeof provider.enableDebug, 'function');
-    assert.doesNotThrow(() => provider.enableDebug());
+    const provider = new ClaudeCodeProvider({ _queryFn: capturingQueryFn });
+    await provider.initialize({ apiKey: 'test-key' });
+    await provider.executeCheck('test prompt', '/tmp/repo');
+
+    assert.deepEqual(capturedOptions?.allowedTools, ['Read', 'Glob', 'Grep']);
   });
 });
+
+describe('ClaudeCodeProvider: thinking blocks and tool_result handling', () => {
+  it('handles thinking blocks in assistant messages without crashing', async () => {
+    const messages = [
+      {
+        type: 'assistant',
+        message: {
+          content: [
+            { type: 'thinking', thinking: 'Let me analyze the security implications of this code...' },
+            { type: 'text', text: 'I found a potential issue.' },
+          ],
+        },
+      },
+      successResult(),
+    ];
+
+    const provider = new ClaudeCodeProvider({ _queryFn: createFakeQueryFn(messages) });
+    await provider.initialize({ apiKey: 'test-key' });
+
+    const result = await provider.executeCheck('test prompt', '/tmp/repo');
+    assert.deepStrictEqual(result.parsed, { issues: [] });
+  });
+
+  it('handles thinking blocks alongside tool_use in the same turn', async () => {
+    const messages = [
+      {
+        type: 'assistant',
+        message: {
+          content: [
+            { type: 'thinking', thinking: 'I should read the file first.' },
+            { type: 'tool_use', id: 'tool_1', name: 'Read', input: { file_path: '/tmp/repo/src/index.ts' } },
+          ],
+        },
+      },
+      {
+        type: 'tool_result',
+        tool_use_id: 'tool_1',
+        content: [{ type: 'text', text: 'const x = 1;' }],
+      },
+      {
+        type: 'assistant',
+        message: {
+          content: [{ type: 'text', text: 'Analysis complete.' }],
+        },
+      },
+      successResult(),
+    ];
+
+    const provider = new ClaudeCodeProvider({ _queryFn: createFakeQueryFn(messages) });
+    await provider.initialize({ apiKey: 'test-key' });
+
+    const result = await provider.executeCheck('test prompt', '/tmp/repo');
+    assert.deepStrictEqual(result.parsed, { issues: [] });
+  });
+
+  it('handles tool_result messages in the stream without crashing', async () => {
+    const messages = [
+      {
+        type: 'assistant',
+        message: {
+          content: [
+            { type: 'tool_use', id: 'tool_1', name: 'Grep', input: { pattern: 'eval', path: '/tmp/repo' } },
+          ],
+        },
+      },
+      {
+        type: 'tool_result',
+        tool_use_id: 'tool_1',
+        content: [{ type: 'text', text: 'src/index.ts:5: eval(userInput)' }],
+      },
+      {
+        type: 'assistant',
+        message: {
+          content: [{ type: 'text', text: 'Found a potential eval injection.' }],
+        },
+      },
+      successResult(),
+    ];
+
+    const provider = new ClaudeCodeProvider({ _queryFn: createFakeQueryFn(messages) });
+    await provider.initialize({ apiKey: 'test-key' });
+
+    const result = await provider.executeCheck('test prompt', '/tmp/repo');
+    assert.deepStrictEqual(result.parsed, { issues: [] });
+  });
+
+  it('handles thinking blocks without tool_use in the same content array', async () => {
+    // Before the scope fix, thinking blocks only fired inside the tool_use if-block,
+    // so a turn with only thinking + text (no tool_use) would silently skip them.
+    const messages = [
+      {
+        type: 'assistant',
+        message: {
+          content: [
+            { type: 'thinking', thinking: 'No tools needed, I can answer directly.' },
+            { type: 'text', text: 'The code looks safe.' },
+          ],
+        },
+      },
+      successResult(),
+    ];
+
+    const provider = new ClaudeCodeProvider({ _queryFn: createFakeQueryFn(messages) });
+    await provider.initialize({ apiKey: 'test-key' });
+
+    const result = await provider.executeCheck('test prompt', '/tmp/repo');
+    assert.deepStrictEqual(result.parsed, { issues: [] });
+  });
+});
+

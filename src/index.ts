@@ -6,7 +6,10 @@
 import 'dotenv/config';
 import { readFile, writeFile, stat, mkdir, readdir } from 'node:fs/promises';
 import { resolve, dirname } from 'node:path';
-import { runMultiScan } from './scan-runner.js';
+import { runMultiScanWithCost } from './scan-runner.js';
+import { loadDefaultPricing, mergePricing, formatCostSourceLabel } from './cost-calculator.js';
+import type { BudgetLimits } from './budget.js';
+import { saveScanRecord, queryScanHistory, type ScanRecord } from './scan-history.js';
 import { createProviderByName, getProviderNames, DEFAULT_PROVIDER_NAME } from './provider-registry.js';
 import {
   loadCheckRegistry,
@@ -45,7 +48,32 @@ async function createMockProvider(): Promise<AgentProvider> {
     }
   }
 
-  const provider = new MockAgentProvider({ rawResponse });
+  // Optional mock token usage for testing cost/budget pipelines.
+  // Format: AGHAST_MOCK_TOKENS="<input>,<output>" (e.g. "1000,500")
+  // When AGHAST_LOCAL_CLAUDE=true, inject a mock reportedCost so that the
+  // coveredBySubscription path (banner "equivalent", label) is exercisable in tests.
+  let tokenUsage: import('./types.js').TokenUsage | undefined;
+  const mockTokensRaw = process.env.AGHAST_MOCK_TOKENS;
+  if (mockTokensRaw) {
+    const parts = mockTokensRaw.split(',').map((s) => Number(s.trim()));
+    if (parts.length === 2 && parts.every((n) => Number.isFinite(n) && n >= 0)) {
+      const useLocalClaude = process.env.AGHAST_LOCAL_CLAUDE === 'true';
+      tokenUsage = {
+        inputTokens: parts[0],
+        outputTokens: parts[1],
+        totalTokens: parts[0] + parts[1],
+        ...(useLocalClaude ? {
+          reportedCost: {
+            amountUsd: (parts[0] + parts[1]) / 1_000_000,
+            source: 'claude-agent-sdk' as const,
+            coveredBySubscription: true,
+          },
+        } : {}),
+      };
+    }
+  }
+
+  const provider = new MockAgentProvider({ rawResponse, tokenUsage });
   await provider.initialize({});
   return provider;
 }
@@ -75,6 +103,10 @@ General options:
   --model <model>            AI model override (e.g. claude-sonnet-4-20250514)
   --agent-provider <name>    Agent provider name (default: claude-code)
   --generic-prompt <file>    Generic prompt template filename in prompts/ dir
+  --budget-limit-cost <usd>  Abort the scan when accumulated cost exceeds this
+                             USD value. Warns at 80%, aborts at 100%
+  --budget-limit-tokens <n>  Abort the scan when accumulated tokens exceed n.
+                             Warns at 80%, aborts at 100%
 
 Environment variables:
   ANTHROPIC_API_KEY           API key for Claude (required for AI-based checks)
@@ -107,6 +139,8 @@ function parseArgs(args: string[]): {
   model?: string;
   agentProvider?: string;
   genericPrompt?: string;
+  budgetLimitCost?: number;
+  budgetLimitTokens?: number;
 } {
   if (args.length < 1 || args[0] === '--help' || args[0] === '-h') {
     console.log(SCAN_HELP);
@@ -130,6 +164,8 @@ function parseArgs(args: string[]): {
   let model: string | undefined;
   let agentProvider: string | undefined;
   let genericPrompt: string | undefined;
+  let budgetLimitCost: number | undefined;
+  let budgetLimitTokens: number | undefined;
 
   for (let i = startIdx; i < args.length; i++) {
     switch (args[i]) {
@@ -227,6 +263,36 @@ function parseArgs(args: string[]): {
         i++;
         break;
       }
+      case '--budget-limit-cost': {
+        const raw = args[i + 1];
+        if (!raw) {
+          console.error(formatError(ERROR_CODES.E1001, '--budget-limit-cost requires a number argument (USD)'));
+          process.exit(1);
+        }
+        const n = Number(raw);
+        if (!Number.isFinite(n) || n <= 0) {
+          console.error(formatError(ERROR_CODES.E1001, `--budget-limit-cost must be a positive number (got "${raw}")`));
+          process.exit(1);
+        }
+        budgetLimitCost = n;
+        i++;
+        break;
+      }
+      case '--budget-limit-tokens': {
+        const raw = args[i + 1];
+        if (!raw) {
+          console.error(formatError(ERROR_CODES.E1001, '--budget-limit-tokens requires a number argument'));
+          process.exit(1);
+        }
+        const n = Number(raw);
+        if (!Number.isFinite(n) || n <= 0 || !Number.isInteger(n)) {
+          console.error(formatError(ERROR_CODES.E1001, `--budget-limit-tokens must be a positive integer (got "${raw}")`));
+          process.exit(1);
+        }
+        budgetLimitTokens = n;
+        i++;
+        break;
+      }
       // --fail-on-check-failure and --debug are handled above via includes()
     }
   }
@@ -235,6 +301,7 @@ function parseArgs(args: string[]): {
     repositoryPath, configDir, outputPath, outputFormat,
     failOnCheckFailure, debug, logLevel, logFile, logType,
     runtimeConfigPath, model, agentProvider, genericPrompt,
+    budgetLimitCost, budgetLimitTokens,
   };
 }
 
@@ -245,7 +312,12 @@ async function createProvider(
 ): Promise<{ provider: AgentProvider; modelName: string }> {
   if (useMock) {
     logProgress(TAG, `Mock provider enabled via AGHAST_MOCK_AI=${process.env.AGHAST_MOCK_AI}`);
-    return { provider: await createMockProvider(), modelName: MOCK_MODEL_NAME };
+    const provider = await createMockProvider();
+    // Honour --model in mock mode so cost-calculation tests can target a known
+    // pricing entry. Defaults to MOCK_MODEL_NAME.
+    const effectiveModel = modelOverride ?? MOCK_MODEL_NAME;
+    provider.setModel?.(effectiveModel);
+    return { provider, modelName: effectiveModel };
   }
 
   const provider = createProviderByName(agentProviderName);
@@ -486,9 +558,7 @@ export async function runScan(args: string[]): Promise<void> {
   let modelName: string | undefined;
   if (needsAI) {
     ({ provider, modelName } = await createProvider(useMock, agentProviderName, modelOverride));
-    if (resolvedLogLevel === 'debug' || resolvedLogLevel === 'trace') {
-      provider.enableDebug?.();
-    }
+
     logProgress(TAG, `Using model: ${modelName}`);
   }
 
@@ -512,8 +582,41 @@ export async function runScan(args: string[]): Promise<void> {
     }
   }
 
+  // ─── Pricing + budget setup ───
+  const defaultPricing = await loadDefaultPricing();
+  const pricing = mergePricing(defaultPricing, runtimeConfig.pricing);
+
+  const budgetLimits: BudgetLimits | undefined = (() => {
+    const cliCost = parsed.budgetLimitCost;
+    const cliTokens = parsed.budgetLimitTokens;
+    const cfg = runtimeConfig.budget;
+    if (cliCost === undefined && cliTokens === undefined && !cfg) return undefined;
+    const out: BudgetLimits = {};
+    const perScan: BudgetLimits['perScan'] = { ...(cfg?.perScan ?? {}) };
+    if (cliCost !== undefined) perScan.maxCostUsd = cliCost;
+    if (cliTokens !== undefined) perScan.maxTokens = cliTokens;
+    if (perScan.maxCostUsd !== undefined || perScan.maxTokens !== undefined) {
+      out.perScan = perScan;
+    }
+    if (cfg?.perPeriod && cfg.perPeriod.window && cfg.perPeriod.maxCostUsd !== undefined) {
+      out.perPeriod = { window: cfg.perPeriod.window, maxCostUsd: cfg.perPeriod.maxCostUsd };
+    }
+    if (cfg?.thresholds) out.thresholds = cfg.thresholds;
+    return Object.keys(out).length > 0 ? out : undefined;
+  })();
+
+  // Pre-load history for period budget checks (skip when no period limit set)
+  let scanHistoryForBudget: ScanRecord[] | undefined;
+  if (budgetLimits?.perPeriod) {
+    try {
+      scanHistoryForBudget = await queryScanHistory();
+    } catch (err) {
+      logDebug(TAG, `Could not load scan history for budget check: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
   try {
-    const results = await runMultiScan({
+    const outcome = await runMultiScanWithCost({
       repositoryPath: effectiveRepoPath,
       checks: checksWithDetails,
       agentProvider: provider,
@@ -522,7 +625,12 @@ export async function runScan(args: string[]): Promise<void> {
       agentProviderName: needsAI ? (useMock ? 'mock' : agentProviderName) : undefined,
       configDir,
       genericPrompt,
+      pricing,
+      budgetLimits,
+      scanHistory: scanHistoryForBudget,
+      isLocalClaude: process.env.AGHAST_LOCAL_CLAUDE === 'true',
     });
+    const results = outcome.results;
 
     // Resolve output path: --output flag > runtime config dir > default
     let resolvedOutputPath: string;
@@ -558,16 +666,74 @@ export async function runScan(args: string[]): Promise<void> {
     console.log(`  Errors:        ${results.summary.errorChecks}`);
     console.log(`  Total issues:  ${results.summary.totalIssues}`);
     if (results.tokenUsage) {
-      console.log(`  Tokens:        ${results.tokenUsage.totalTokens.toLocaleString()} (in: ${results.tokenUsage.inputTokens.toLocaleString()}, out: ${results.tokenUsage.outputTokens.toLocaleString()})`);
+      const tu = results.tokenUsage;
+      const cacheSegments = [
+        tu.cacheReadInputTokens !== undefined ? ` cache-read: ${tu.cacheReadInputTokens.toLocaleString()}` : '',
+        tu.cacheCreationInputTokens !== undefined ? ` cache-write: ${tu.cacheCreationInputTokens.toLocaleString()}` : '',
+        tu.reasoningTokens !== undefined ? ` reasoning: ${tu.reasoningTokens.toLocaleString()}` : '',
+      ].filter(Boolean).join(',');
+      const tokenDetail = `(in: ${tu.inputTokens.toLocaleString()}, out: ${tu.outputTokens.toLocaleString()}${cacheSegments ? ',' + cacheSegments : ''})`;
+      console.log(`  Tokens:        ${tu.totalTokens.toLocaleString()} ${tokenDetail}`);
+    }
+    if (outcome.totalCostUsd > 0 || outcome.costSource === 'estimated-unpriced') {
+      const label = formatCostSourceLabel(outcome.costSource, outcome.costReportedBy, outcome.costCoveredBySubscription);
+      const equiv = outcome.costCoveredBySubscription ? ' equivalent' : '';
+      console.log(`  Cost:          $${outcome.totalCostUsd.toFixed(4)}${equiv}  ${label}`);
     }
     console.log(`  Duration:      ${globalTimer.elapsedStr()}`);
     console.log(`  Results:       ${resolvedOutputPath}`);
     console.log('='.repeat(60));
 
-    // Exit code based on --fail-on-check-failure flag or runtime config (spec Section 9.3)
+    // Persist the scan record to history (best-effort — never blocks exit).
+    // We DO save the record even when the scan was aborted by budget: per-period
+    // budgets aggregate over historical scans, so the partial cost incurred
+    // before the abort must be recorded — otherwise a user could repeatedly
+    // hit the budget abort and still consume more total spend than the period
+    // limit allows.
+    try {
+      const record: ScanRecord = {
+        scanId: results.scanId,
+        startedAt: results.startTime,
+        endedAt: results.endTime,
+        durationMs: results.executionTime,
+        repository: effectiveRepoPath,
+        repositoryUrl: repoAnalysis?.repository.remoteUrl,
+        models: outcome.models.length > 0 ? outcome.models : (modelName ? [modelName] : []),
+        tokenUsage: results.tokenUsage,
+        totalCost: outcome.totalCostUsd,
+        currency: outcome.currency,
+        costSource: outcome.costSource,
+        costReportedBy: outcome.costReportedBy,
+        costCoveredBySubscription: outcome.costCoveredBySubscription,
+        checks: results.summary.totalChecks,
+        issues: results.summary.totalIssues,
+      };
+      await saveScanRecord(record);
+    } catch (err) {
+      logDebug(TAG, `Failed to save scan history: ${err instanceof Error ? err.message : String(err)}`);
+    }
+
+    // A budget abort is a deliberate failure mode the user opted into via
+    // --budget-limit-* / runtime config — it must always exit non-zero (and
+    // surface E7001 to stderr) regardless of --fail-on-check-failure. Doing
+    // otherwise would silently drop the abort signal in CI pipelines that
+    // rely on the exit code as a guardrail.
+    //
+    // Emit through both stderr (for terminal users / CI logs) AND the logging
+    // system (so --log-file captures the abort reason — console.error bypasses
+    // registered log handlers).
+    if (outcome.budgetAborted) {
+      const reason = outcome.budgetAbortReason ?? 'Budget limit exceeded';
+      console.error(formatError(ERROR_CODES.E7001, reason));
+      logProgress(TAG, `Scan aborted by budget: ${reason}`);
+    }
+
+    // Exit code based on --fail-on-check-failure flag or runtime config (spec Section 9.3),
+    // OR a budget abort.
     const failOnCheckFailure = parsed.failOnCheckFailure || runtimeConfig.failOnCheckFailure === true;
     const shouldFail =
-      failOnCheckFailure && (results.summary.failedChecks > 0 || results.summary.errorChecks > 0);
+      outcome.budgetAborted ||
+      (failOnCheckFailure && (results.summary.failedChecks > 0 || results.summary.errorChecks > 0));
     await closeAllHandlers();
     process.exit(shouldFail ? 1 : 0);
   } finally {

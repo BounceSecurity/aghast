@@ -179,7 +179,6 @@ describe('AgentProvider interface compliance — OpenCodeProvider', () => {
     const provider = new OpenCodeProvider();
     assert.equal(typeof provider.getModelName, 'function');
     assert.equal(typeof provider.setModel, 'function');
-    assert.equal(typeof provider.enableDebug, 'function');
     assert.equal(typeof provider.checkPrerequisites, 'function');
     assert.equal(typeof provider.cleanup, 'function');
   });

@@ -9,7 +9,7 @@
  * can be added at runtime via addHandler().
  */
 
-import { createWriteStream, mkdirSync, type WriteStream } from 'node:fs';
+import { openSync, writeSync, closeSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 
 // --- Log Levels ---
@@ -129,7 +129,7 @@ export class FileHandler implements LogHandler {
   readonly name: string;
   level: LogLevel | 'silent';
   private priority: number;
-  private stream: WriteStream | null = null;
+  private fd: number | null = null;
 
   constructor(filePath: string, level: LogLevel | 'silent' = 'trace', name = 'file') {
     this.name = name;
@@ -138,54 +138,46 @@ export class FileHandler implements LogHandler {
 
     try {
       mkdirSync(dirname(filePath), { recursive: true });
-      this.stream = createWriteStream(filePath, { flags: 'w', encoding: 'utf-8', mode: 0o600 });
-      this.stream.on('error', (err) => {
-        console.warn(`[logging] File handler write error: ${err.message}`);
-        this.stream = null;
-      });
+      this.fd = openSync(filePath, 'w', 0o600);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       console.warn(`[logging] Failed to open log file "${filePath}": ${msg}`);
-      this.stream = null;
+      this.fd = null;
     }
   }
 
   handle(entry: LogEntry): void {
-    if (!this.stream) return;
+    if (this.fd === null) return;
     const entryPriority = LOG_LEVEL_PRIORITY[entry.level];
     if (entryPriority > this.priority) return;
 
     const levelTag = `[${entry.level}]`;
-    let line: string;
-    const message = entry.message.includes('\n')
-      ? `[base64] ${Buffer.from(entry.message, 'utf-8').toString('base64')}`
-      : entry.message;
+    const header = `${entry.timestamp} [${entry.tag}]${levelTag} ${entry.message}`;
 
+    let line: string;
     if (entry.data === undefined) {
-      line = `${entry.timestamp} [${entry.tag}]${levelTag} ${message}`;
+      line = header;
     } else {
-      const formatted = typeof entry.data === 'string' ? entry.data : JSON.stringify(entry.data);
-      if (entry.level === 'trace' || formatted.includes('\n')) {
-        const b64 = Buffer.from(formatted, 'utf-8').toString('base64');
-        line = `${entry.timestamp} [${entry.tag}]${levelTag} ${message}: [base64] ${b64}`;
-      } else {
-        line = `${entry.timestamp} [${entry.tag}]${levelTag} ${message}: ${formatted}`;
-      }
+      const formatted = typeof entry.data === 'string' ? entry.data : JSON.stringify(entry.data, null, 2);
+      line = `${header}\n${formatted}\n--- end ---`;
     }
-    this.stream.write(line + '\n');
+    try {
+      writeSync(this.fd, line + '\n');
+    } catch (err: unknown) {
+      console.warn(`[logging] File handler write error: ${err instanceof Error ? err.message : String(err)}`);
+      this.fd = null;
+    }
   }
 
   close(): Promise<void> {
-    if (!this.stream) return Promise.resolve();
-    const stream = this.stream;
-    this.stream = null;
-    if (stream.destroyed || stream.closed) return Promise.resolve();
-    return new Promise<void>((resolve) => {
-      stream.end(() => {
-        stream.destroy();
-        resolve();
-      });
-    });
+    if (this.fd === null) return Promise.resolve();
+    try {
+      closeSync(this.fd);
+    } catch {
+      // best-effort
+    }
+    this.fd = null;
+    return Promise.resolve();
   }
 }
 

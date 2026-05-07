@@ -12,7 +12,7 @@ import { buildPrompt } from './prompt-template.js';
 import { parseAgentResponse } from './response-parser.js';
 import { extractSnippet } from './snippet-extractor.js';
 import { analyzeRepository } from './repository-analyzer.js';
-import { logProgress, logDebug, createTimer } from './logging.js';
+import { logProgress, logDebug, logWarn, createTimer } from './logging.js';
 import { CHECK_TYPE } from './check-types.js';
 import { getDiscovery, registerDiscovery } from './discovery.js';
 import { DEFAULT_PROVIDER_NAME } from './provider-registry.js';
@@ -34,10 +34,16 @@ import {
   type ScanSummary,
   type TokenUsage,
 } from './types.js';
+import { calculateCost, type PricingConfig, type CostBreakdown } from './cost-calculator.js';
+import { checkBudget, BudgetExceededError, type BudgetLimits } from './budget.js';
+import type { ScanRecord } from './scan-history.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const TAG = 'scan';
 const DEFAULT_CONCURRENCY = 5;
+// Per-target AI call timeout. Without this, a single hung provider request stalls
+// the worker indefinitely; with concurrency=N hangs, the entire check freezes.
+const DEFAULT_TARGET_TIMEOUT_MS = 5 * 60 * 1000;
 
 // --- Register built-in discovery implementations ---
 registerDiscovery(semgrepDiscovery);
@@ -47,14 +53,36 @@ registerDiscovery(sarifDiscovery);
 /**
  * Sum multiple TokenUsage values into one aggregate.
  * Returns undefined if no inputs have token usage.
+ *
+ * reportedCost is aggregated only when every contributing call has it — a
+ * single missing cost means we cannot produce an accurate total, so we fall
+ * back to undefined (which triggers rate-based estimation later).
  */
-function sumTokenUsage(usages: (TokenUsage | undefined)[]): TokenUsage | undefined {
+export function sumTokenUsage(usages: (TokenUsage | undefined)[]): TokenUsage | undefined {
   const defined = usages.filter((u): u is TokenUsage => u !== undefined);
   if (defined.length === 0) return undefined;
+
+  // Optional fields: sum when at least one is present; preserve undefined when all absent.
+  const sumOptional = (getter: (u: TokenUsage) => number | undefined): number | undefined => {
+    const values = defined.map(getter).filter((v): v is number => v !== undefined);
+    return values.length > 0 ? values.reduce((a, b) => a + b, 0) : undefined;
+  };
+
+  // reportedCost: only aggregate when every item has it (uniform provider, single source).
+  let reportedCost: TokenUsage['reportedCost'];
+  if (defined.every((u) => u.reportedCost !== undefined)) {
+    const total = defined.reduce((sum, u) => sum + u.reportedCost!.amountUsd, 0);
+    reportedCost = { amountUsd: total, source: defined[0].reportedCost!.source };
+  }
+
   return {
     inputTokens: defined.reduce((sum, u) => sum + u.inputTokens, 0),
     outputTokens: defined.reduce((sum, u) => sum + u.outputTokens, 0),
+    cacheCreationInputTokens: sumOptional((u) => u.cacheCreationInputTokens),
+    cacheReadInputTokens: sumOptional((u) => u.cacheReadInputTokens),
+    reasoningTokens: sumOptional((u) => u.reasoningTokens),
     totalTokens: defined.reduce((sum, u) => sum + u.totalTokens, 0),
+    ...(reportedCost !== undefined ? { reportedCost } : {}),
   };
 }
 
@@ -131,6 +159,92 @@ export interface MultiScanOptions {
   repositoryInfo?: RepositoryInfo;
   configDir?: string;
   genericPrompt?: string;
+  /** Pricing config for cost calculations. */
+  pricing?: PricingConfig;
+  /** Optional budget limits enforced before each AI call. */
+  budgetLimits?: BudgetLimits;
+  /** Pre-loaded scan history (for period budget checks). */
+  scanHistory?: ScanRecord[];
+  /** true when AGHAST_LOCAL_CLAUDE=true — triggers budget warning if limits are also set */
+  isLocalClaude?: boolean;
+}
+
+/**
+ * Tracks accumulated tokens/cost across a scan so the budget can be evaluated
+ * before each AI call. Mutated in place by AI invocations.
+ */
+export interface ScanCostTracker {
+  pricing?: PricingConfig;
+  budgetLimits?: BudgetLimits;
+  scanHistory?: ScanRecord[];
+  totalTokens: number;
+  totalCostUsd: number;
+  /** Cost source from the last recorded AI call. Used for banner labelling. */
+  lastCostSource?: CostBreakdown['source'];
+  lastCostReportedBy?: CostBreakdown['reportedBy'];
+  lastCostCoveredBySubscription?: boolean;
+  /** Set true after the first warn so we don't log it repeatedly. */
+  warned: boolean;
+  /** Most recent budget action returned to the runner. */
+  lastAction: 'continue' | 'warn' | 'abort';
+  /** Reason from the most recent non-continue check. */
+  lastReason?: string;
+}
+
+function createCostTracker(options: MultiScanOptions): ScanCostTracker {
+  return {
+    pricing: options.pricing,
+    budgetLimits: options.budgetLimits,
+    scanHistory: options.scanHistory,
+    totalTokens: 0,
+    totalCostUsd: 0,
+    warned: false,
+    lastAction: 'continue',
+  };
+}
+
+/**
+ * Record an AI call's token usage against the tracker. Called after each
+ * successful executeCheck().
+ */
+function recordUsage(
+  tracker: ScanCostTracker,
+  usage: TokenUsage | undefined,
+  model: string,
+): void {
+  if (!usage || !tracker.pricing) return;
+  const cost = calculateCost(usage, model, tracker.pricing);
+  tracker.totalTokens += usage.totalTokens;
+  tracker.totalCostUsd += cost.totalCost;
+  tracker.lastCostSource = cost.source;
+  tracker.lastCostReportedBy = cost.reportedBy;
+  tracker.lastCostCoveredBySubscription = cost.coveredBySubscription;
+}
+
+/**
+ * Check the budget before an AI call. Logs a warning the first time the warn
+ * threshold is crossed; throws BudgetExceededError when the abort threshold is
+ * crossed.
+ */
+function preflightBudget(tracker: ScanCostTracker): void {
+  if (!tracker.budgetLimits) return;
+  const status = checkBudget(
+    {
+      currentScanCostUsd: tracker.totalCostUsd,
+      currentScanTokens: tracker.totalTokens,
+      history: tracker.scanHistory,
+    },
+    tracker.budgetLimits,
+  );
+  tracker.lastAction = status.action;
+  tracker.lastReason = status.reason;
+  if (status.action === 'abort') {
+    throw new BudgetExceededError(status.reason ?? 'Budget limit exceeded');
+  }
+  if (status.action === 'warn' && !tracker.warned) {
+    tracker.warned = true;
+    logProgress(TAG, `Budget warning: ${status.reason ?? 'approaching limit'}`);
+  }
 }
 
 /**
@@ -325,6 +439,7 @@ async function executeSingleCheck(
   concurrency?: number,
   configDir?: string,
   genericPrompt?: string,
+  costTracker?: ScanCostTracker,
 ): Promise<CheckExecutionResult> {
   const checkId = check.id;
 
@@ -343,6 +458,7 @@ async function executeSingleCheck(
       concurrency,
       configDir,
       genericPrompt,
+      costTracker,
     );
   }
 
@@ -367,7 +483,12 @@ async function executeSingleCheck(
   const checkTimer = createTimer();
 
   try {
+    if (costTracker) preflightBudget(costTracker);
     const agentResponse = await agentProvider.executeCheck(prompt, repositoryPath);
+    if (costTracker) {
+      const model = agentProvider.getModelName?.() ?? DEFAULT_MODEL;
+      recordUsage(costTracker, agentResponse.tokenUsage, model);
+    }
     const executionTime = checkTimer.elapsed();
 
     logDebug(TAG, `Agent response: ${agentResponse.raw.length} chars`);
@@ -424,8 +545,8 @@ async function executeSingleCheck(
       };
     }
   } catch (err) {
-    // Fatal errors must propagate up to abort the entire scan
-    if (err instanceof FatalProviderError) {
+    // Fatal errors and budget aborts must propagate up to stop the scan
+    if (err instanceof FatalProviderError || err instanceof BudgetExceededError) {
       throw err;
     }
     const executionTime = checkTimer.elapsed();
@@ -459,6 +580,7 @@ async function executeTargetedCheck(
   optionsConcurrency?: number,
   configDir?: string,
   genericPromptOverride?: string,
+  costTracker?: ScanCostTracker,
 ): Promise<CheckExecutionResult> {
   const checkId = check.id;
   const checkTarget = check.checkTarget!;
@@ -539,15 +661,44 @@ async function executeTargetedCheck(
       async (target, _idx) => {
         inProgressCount++;
         try {
+          if (costTracker) {
+            try {
+              preflightBudget(costTracker);
+            } catch (budgetErr) {
+              if (budgetErr instanceof BudgetExceededError) {
+                abortHandle.aborted = true;
+                abortHandle.reason = budgetErr;
+                throw budgetErr;
+              }
+              throw budgetErr;
+            }
+          }
           const prompt = basePrompt + (target.promptEnrichment ?? '');
 
           logDebug(TAG, `${target.label} Analyzing: ${target.file}:${target.startLine}-${target.endLine}`);
-          const agentResponse = await agentProvider.executeCheck(
-            prompt,
-            repositoryPath,
-            target.label,
-            target.agentOptions,
-          );
+          let timeoutHandle: NodeJS.Timeout | undefined;
+          const agentResponse = await Promise.race([
+            agentProvider.executeCheck(
+              prompt,
+              repositoryPath,
+              target.label,
+              target.agentOptions,
+            ),
+            new Promise<never>((_, reject) => {
+              timeoutHandle = setTimeout(
+                () => reject(new Error(
+                  `Agent provider timed out after ${DEFAULT_TARGET_TIMEOUT_MS / 1000}s on target ${target.label}`,
+                )),
+                DEFAULT_TARGET_TIMEOUT_MS,
+              );
+            }),
+          ]).finally(() => {
+            if (timeoutHandle) clearTimeout(timeoutHandle);
+          });
+          if (costTracker) {
+            const model = agentProvider.getModelName?.() ?? DEFAULT_MODEL;
+            recordUsage(costTracker, agentResponse.tokenUsage, model);
+          }
 
           const parsed = agentResponse.parsed ?? parseAgentResponse(agentResponse.raw);
 
@@ -574,8 +725,8 @@ async function executeTargetedCheck(
           );
           return { issues, error: false, flagged: parsed.flagged === true, tokenUsage: agentResponse.tokenUsage };
         } catch (err) {
-          // Fatal errors: signal abort and re-throw to stop other workers
-          if (err instanceof FatalProviderError) {
+          // Fatal errors and budget aborts: signal abort and re-throw to stop other workers
+          if (err instanceof FatalProviderError || err instanceof BudgetExceededError) {
             abortHandle.aborted = true;
             abortHandle.reason = err;
             throw err;
@@ -635,8 +786,8 @@ async function executeTargetedCheck(
       issues: allIssues,
     };
   } catch (err) {
-    // Fatal errors must propagate up to abort the entire scan
-    if (err instanceof FatalProviderError) {
+    // Fatal errors and budget aborts must propagate up to stop the scan
+    if (err instanceof FatalProviderError || err instanceof BudgetExceededError) {
       throw err;
     }
     const executionTime = checkTimer.elapsed();
@@ -742,10 +893,37 @@ async function executeStaticCheck(
   }
 }
 
+/** Aggregated ScanResults plus computed cost summary. */
+export interface MultiScanOutcome {
+  results: ScanResults;
+  totalCostUsd: number;
+  currency: string;
+  models: string[];
+  /** How the cost was determined (for banner/stats labelling). */
+  costSource?: CostBreakdown['source'];
+  /** Which provider reported the cost when costSource === 'reported'. */
+  costReportedBy?: CostBreakdown['reportedBy'];
+  /** true when AGHAST_LOCAL_CLAUDE=true — amount is API-equivalent, not billed */
+  costCoveredBySubscription?: boolean;
+  /** True when the scan was halted by a budget abort. */
+  budgetAborted?: boolean;
+  /** Reason from the budget abort, when budgetAborted is true. */
+  budgetAbortReason?: string;
+}
+
 /**
  * Run multiple security checks and return aggregated ScanResults.
  */
 export async function runMultiScan(options: MultiScanOptions): Promise<ScanResults> {
+  const outcome = await runMultiScanWithCost(options);
+  return outcome.results;
+}
+
+/**
+ * Same as runMultiScan but also returns the computed cost summary.
+ * Used by the CLI to record scan history.
+ */
+export async function runMultiScanWithCost(options: MultiScanOptions): Promise<MultiScanOutcome> {
   const { repositoryPath, checks, agentProvider, modelName, agentProviderName, concurrency, configDir, genericPrompt } = options;
   const scanTimer = createTimer();
   const scanId = generateScanId();
@@ -754,6 +932,9 @@ export async function runMultiScan(options: MultiScanOptions): Promise<ScanResul
 
   logProgress(TAG, `Starting scan ${scanId} (${checks.length} ${checks.length === 1 ? 'check' : 'checks'})`);
   logDebug(TAG, `Repository: ${repositoryPath}`);
+  if (options.isLocalClaude && options.budgetLimits) {
+    logWarn(TAG, 'Budget limits in local-Claude mode apply to equivalent API cost, not subscription usage.');
+  }
 
   // Use pre-analyzed repository info if provided, otherwise analyze here
   let repositoryInfo: RepositoryInfo;
@@ -766,6 +947,11 @@ export async function runMultiScan(options: MultiScanOptions): Promise<ScanResul
 
   const allCheckSummaries: CheckExecutionSummary[] = [];
   const allIssues: SecurityIssue[] = [];
+  let budgetAborted = false;
+  let budgetAbortReason: string | undefined;
+
+  // Cost / budget tracking spans all checks in the scan.
+  const costTracker = createCostTracker(options);
 
   // Track all models used during the scan
   const modelsUsed = new Set<string>();
@@ -794,11 +980,39 @@ export async function runMultiScan(options: MultiScanOptions): Promise<ScanResul
         concurrency,
         configDir,
         genericPrompt,
+        costTracker,
       );
 
       allCheckSummaries.push(checkSummary);
       allIssues.push(...issues);
     } catch (err) {
+      if (err instanceof BudgetExceededError) {
+        budgetAborted = true;
+        budgetAbortReason = err.message;
+        logProgress(TAG, `Budget exceeded during check "${check.id}": ${err.message}`);
+        allCheckSummaries.push({
+          checkId: check.id,
+          checkName: details.name,
+          status: 'ERROR',
+          issuesFound: 0,
+          executionTime: 0,
+          error: `Budget exceeded: ${err.message}`,
+        });
+        for (let ri = ci + 1; ri < checks.length; ri++) {
+          const remaining = checks[ri];
+          logProgress(TAG, `Skipping check "${remaining.check.id}" due to budget abort`);
+          allCheckSummaries.push({
+            checkId: remaining.check.id,
+            checkName: remaining.details.name,
+            status: 'ERROR',
+            issuesFound: 0,
+            executionTime: 0,
+            error: `Scan aborted: budget limit exceeded`,
+          });
+        }
+        restoreModel(agentProvider, previousModel);
+        break;
+      }
       if (err instanceof FatalProviderError) {
         // Record the failing check as ERROR
         logProgress(TAG, `Fatal error during check "${check.id}": ${err.message}`);
@@ -869,5 +1083,26 @@ export async function runMultiScan(options: MultiScanOptions): Promise<ScanResul
     tokenUsage: aggregateTokenUsage,
   };
 
-  return results;
+  // Attach cost metadata when pricing was provided.
+  if (options.pricing) {
+    results.metadata = {
+      ...(results.metadata ?? {}),
+      cost: {
+        totalCostUsd: costTracker.totalCostUsd,
+        currency: options.pricing.currency ?? 'USD',
+      },
+    };
+  }
+
+  return {
+    results,
+    totalCostUsd: costTracker.totalCostUsd,
+    currency: options.pricing?.currency ?? 'USD',
+    models: [...modelsUsed],
+    costSource: costTracker.lastCostSource,
+    costReportedBy: costTracker.lastCostReportedBy,
+    costCoveredBySubscription: costTracker.lastCostCoveredBySubscription,
+    budgetAborted,
+    budgetAbortReason,
+  };
 }

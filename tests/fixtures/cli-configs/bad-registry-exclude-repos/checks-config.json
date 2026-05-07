@@ -1,0 +1,5 @@
+{
+  "checks": [
+    { "id": "aghast-test", "repositories": [], "excludeRepositories": "not-an-array" }
+  ]
+}
